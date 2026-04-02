@@ -1,0 +1,47 @@
+{
+  "name": "totp-authenticator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Desktop TOTP authenticator with Electron and SQLite persistence.",
+  "main": "electron/main.js",
+  "author": "Mino9526",
+  "scripts": {
+    "generate:icon": "node scripts/generate-icon.mjs",
+    "start": "node server.js",
+    "desktop": "electron .",
+    "dist:win": "electron-builder --win portable",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "io.github.mino9526.authenticator",
+    "productName": "TOTP Authenticator",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "index.html",
+      "styles.css",
+      "db.js",
+      "server.js",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "portable"
+      ]
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
+    }
+  }
+}

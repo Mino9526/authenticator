@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TOTP Authenticator</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="app-kicker">Authenticator</p>
+          <h1>验证码</h1>
+        </div>
+        <div class="topbar-meta">
+          <span class="meta-count-pill"><strong id="entry-count">0</strong> 个条目</span>
+          <div id="top-menu" class="top-menu">
+            <button id="top-menu-button" class="card-button top-menu-button icon-button" type="button" aria-label="更多操作" aria-expanded="false">
+              <span class="icon-dots" aria-hidden="true"></span>
+            </button>
+            <div class="top-menu-panel">
+              <button id="export-button" class="menu-item" type="button">导出 JSON</button>
+              <label class="menu-file-item">
+                导入 JSON
+                <input id="import-file-input" type="file" accept=".json,.txt" />
+              </label>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="content-stack">
+        <section class="list-panel">
+          <div id="entries-grid" class="entries-grid"></div>
+        </section>
+      </main>
+    </div>
+
+    <div id="editor-backdrop" class="editor-backdrop" aria-hidden="true">
+      <section id="editor-panel" class="editor-sheet" role="dialog" aria-modal="true" aria-labelledby="editor-title">
+        <div class="sheet-handle"></div>
+        <div class="sheet-head">
+          <div>
+            <h2 id="editor-title">添加条目</h2>
+          </div>
+          <div class="sheet-head-actions">
+            <button id="reset-form-button" class="secondary-button" type="button">清空</button>
+            <button class="primary-button" type="submit" form="entry-form">保存</button>
+          </div>
+        </div>
+
+        <form id="entry-form" class="form-grid sheet-form">
+          <input id="entry-id" type="hidden" />
+          <div id="quick-import-section" class="full-span quick-import-section">
+            <label>
+              <div class="inline-input-shell">
+                <textarea
+                  id="quick-import-input"
+                  rows="3"
+                  aria-label="导入 Key"
+                  placeholder="otpauth://totp/... 或 Base32 密钥"
+                ></textarea>
+                <button id="quick-import-button" class="secondary-button inline-input-action" type="button">解析</button>
+              </div>
+            </label>
+          </div>
+          <label>
+            名称
+            <input id="label-input" name="label" required placeholder="GitHub" />
+          </label>
+          <label>
+            账号
+            <input id="account-input" name="account" placeholder="name@example.com" />
+          </label>
+          <label>
+            发行方
+            <input id="issuer-input" name="issuer" placeholder="Google / GitHub" />
+          </label>
+          <label>
+            网址
+            <input id="website-input" name="website" type="url" placeholder="https://example.com/security" />
+          </label>
+          <label>
+            密钥
+            <input id="secret-input" name="secret" required placeholder="Base32 密钥" spellcheck="false" />
+          </label>
+          <label>
+            算法
+            <select id="algorithm-input" name="algorithm">
+              <option value="SHA1">SHA1</option>
+              <option value="SHA256">SHA256</option>
+              <option value="SHA512">SHA512</option>
+            </select>
+          </label>
+          <label>
+            位数
+            <select id="digits-input" name="digits">
+              <option value="6">6</option>
+              <option value="8">8</option>
+            </select>
+          </label>
+          <label>
+            周期
+            <input id="period-input" name="period" type="number" min="15" step="1" value="30" />
+          </label>
+          <label class="full-span">
+            备注
+            <textarea id="notes-input" name="notes" rows="3" placeholder="恢复信息、用途说明等"></textarea>
+          </label>
+        </form>
+      </section>
+    </div>
+
+    <div id="confirm-backdrop" class="confirm-backdrop" aria-hidden="true">
+      <section class="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">
+        <h2 id="confirm-title">确认操作</h2>
+        <p id="confirm-message"></p>
+        <div class="confirm-actions">
+          <button id="confirm-cancel-button" class="secondary-button" type="button">取消</button>
+          <button id="confirm-accept-button" class="primary-button" type="button">确认</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="toast-root" aria-live="polite" aria-atomic="true">
+      <div id="toast" class="toast"></div>
+    </div>
+
+    <button id="fab-add-button" class="fab-button" type="button" aria-label="添加条目">+</button>
+
+    <template id="entry-template">
+      <article class="entry-card">
+        <div class="entry-main">
+          <div class="entry-leading">
+            <div class="entry-timer-ring">
+              <div class="entry-timer-core">
+                <span class="entry-timer"></span>
+              </div>
+            </div>
+          </div>
+          <div class="entry-identity">
+            <div class="entry-heading">
+              <p class="entry-label"></p>
+              <a class="entry-link" target="_blank" rel="noreferrer noopener" aria-label="打开相关网址">
+                <svg class="link-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M14 5h5v5" />
+                  <path d="M10 14L19 5" />
+                  <path d="M19 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" />
+                </svg>
+              </a>
+            </div>
+            <p class="entry-account"></p>
+            <p class="entry-notes"></p>
+          </div>
+        </div>
+        <div class="entry-code-block">
+          <p class="entry-code"></p>
+        </div>
+        <div class="entry-card-actions">
+          <div class="entry-menu">
+            <button class="card-button menu-button icon-button" type="button" aria-label="更多操作" aria-expanded="false">
+              <span class="icon-dots" aria-hidden="true"></span>
+            </button>
+            <div class="entry-menu-panel">
+              <button class="menu-item edit-button" type="button">编辑条目</button>
+              <button class="menu-item delete-button" type="button">删除条目</button>
+            </div>
+          </div>
+        </div>
+      </article>
+    </template>
+
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
