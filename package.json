@@ -8,7 +8,7 @@
   "author": "Mino9526",
   "scripts": {
     "generate:icon": "node scripts/generate-icon.mjs",
-    "start": "node server.js",
+    "start": "electron .",
     "desktop": "electron .",
     "dist:win": "electron-builder --win portable",
     "test": "node --test"
@@ -30,7 +30,6 @@
       "index.html",
       "styles.css",
       "db.js",
-      "server.js",
       "package.json"
     ],
     "asar": true,

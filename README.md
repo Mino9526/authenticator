@@ -1,7 +1,7 @@
 # TOTP Authenticator
 
-一个本地优先的 TOTP 认证器，使用 Electron + Node + SQLite 实现。  
-桌面版面向 Windows 便携分发，开发阶段也可以用浏览器访问本地服务调试界面。
+一个本地优先的 TOTP 认证器，使用 Electron + SQLite 实现。  
+当前版本为纯桌面架构，不再依赖本地 HTTP 服务。
 
 ## 当前功能
 
@@ -19,24 +19,9 @@
 
 ## 运行方式
 
-### 1. 浏览器开发模式
-
 ```bash
 npm install
 npm start
-```
-
-打开：
-
-```text
-http://127.0.0.1:4173
-```
-
-### 2. Electron 桌面模式
-
-```bash
-npm install
-npm run desktop
 ```
 
 ## Windows 打包
@@ -64,16 +49,6 @@ dist/
 - Windows `portable` 便携版 `.exe`
 
 ## 数据存储位置
-
-### 开发模式
-
-SQLite 默认保存在项目目录：
-
-```text
-data/authenticator.sqlite
-```
-
-### Electron 桌面版
 
 SQLite 保存在 Electron 用户数据目录，例如 Windows 下通常类似：
 
@@ -108,11 +83,9 @@ npm test
 
 ```text
 electron/      Electron 主进程与 preload
-src/           前端逻辑与 TOTP 处理
+src/           前端逻辑、IPC 存储接入与 TOTP 处理
 test/          自动化测试
-data/          开发环境 SQLite 数据文件
 build/         打包图标资源
-server.js      本地 HTTP 服务
 db.js          SQLite 存储层
 index.html     主页面
 styles.css     页面样式

@@ -1,25 +1,25 @@
 import { sanitizeEntry } from "./totp.js";
 
-async function readApiResponse(response) {
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload.error || "请求失败。");
+function readDesktopEntries(entries) {
+  if (!Array.isArray(entries)) {
+    throw new Error("桌面端返回了无效的数据。");
   }
-  return payload;
+
+  return entries.map((entry) => sanitizeEntry(entry));
 }
 
 export async function loadEntries() {
-  const response = await fetch("/api/entries");
-  const payload = await readApiResponse(response);
-  return Array.isArray(payload.entries) ? payload.entries.map((entry) => sanitizeEntry(entry)) : [];
+  if (!window.desktopApp?.loadEntries) {
+    throw new Error("当前版本仅支持 Electron 桌面模式。");
+  }
+
+  return readDesktopEntries(await window.desktopApp.loadEntries());
 }
 
 export async function saveEntries(entries) {
-  const response = await fetch("/api/entries", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ entries }),
-  });
-  const payload = await readApiResponse(response);
-  return Array.isArray(payload.entries) ? payload.entries.map((entry) => sanitizeEntry(entry)) : [];
+  if (!window.desktopApp?.saveEntries) {
+    throw new Error("当前版本仅支持 Electron 桌面模式。");
+  }
+
+  return readDesktopEntries(await window.desktopApp.saveEntries(entries));
 }

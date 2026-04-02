@@ -1,14 +1,13 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, clipboard, ipcMain, shell } from "electron";
-import { startServer } from "../server.js";
+import { EntryStore } from "../db.js";
 import { isSafeHttpUrl } from "../src/totp.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-let appServer;
 let mainWindow;
-let isQuitting = false;
+let entryStore;
 
 function getProjectRoot() {
   return path.resolve(__dirname, "..");
@@ -18,17 +17,28 @@ function getDatabasePath() {
   return path.join(app.getPath("userData"), "authenticator.sqlite");
 }
 
+function getEntryStore() {
+  if (!entryStore) {
+    entryStore = new EntryStore(getDatabasePath());
+  }
+  return entryStore;
+}
+
 ipcMain.handle("clipboard:write-text", (_event, text) => {
   clipboard.writeText(String(text || ""));
   return true;
 });
 
+ipcMain.handle("entries:load", () => {
+  return getEntryStore().listEntries();
+});
+
+ipcMain.handle("entries:save", (_event, entries) => {
+  return getEntryStore().replaceEntries(Array.isArray(entries) ? entries : []);
+});
+
 async function createMainWindow() {
-  appServer = await startServer({
-    port: 0,
-    root: getProjectRoot(),
-    databasePath: getDatabasePath(),
-  });
+  getEntryStore();
 
   mainWindow = new BrowserWindow({
     width: 412,
@@ -45,8 +55,8 @@ async function createMainWindow() {
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
-      sandbox: true,
-      preload: path.join(__dirname, "preload.js"),
+      sandbox: false,
+      preload: path.join(__dirname, "preload.cjs"),
     },
   });
 
@@ -57,7 +67,11 @@ async function createMainWindow() {
     return { action: "deny" };
   });
 
-  await mainWindow.loadURL(appServer.url);
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+
+  await mainWindow.loadFile(path.join(getProjectRoot(), "index.html"));
 }
 
 app.whenReady().then(async () => {
@@ -76,18 +90,9 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", async (event) => {
-  if (isQuitting || !appServer) {
-    return;
-  }
-
-  event.preventDefault();
-  isQuitting = true;
-  const serverToStop = appServer;
-  appServer = null;
-  try {
-    await serverToStop.stop();
-  } finally {
-    app.quit();
+app.on("before-quit", () => {
+  if (entryStore) {
+    entryStore.close();
+    entryStore = null;
   }
 });
