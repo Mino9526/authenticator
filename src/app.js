@@ -11,7 +11,7 @@ import {
   secondsRemaining,
   validateEntry,
 } from "./totp.js";
-import { openExternalUrl } from "./tauri.js";
+import { exportBackupWithDialog, openExternalUrl } from "./tauri.js";
 import { loadEntries, saveEntries } from "./storage.js";
 
 const entryCount = document.querySelector("#entry-count");
@@ -292,16 +292,6 @@ function fillEntryForm(entry, options = {}) {
     quickImportInput.value = "";
   }
   openEntryPanel();
-}
-
-function downloadTextFile(filename, text) {
-  const blob = new Blob([text], { type: "application/json;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
 }
 
 async function copyText(text) {
@@ -631,12 +621,23 @@ document.addEventListener("click", (event) => {
   }
 });
 
-exportButton.addEventListener("click", () => {
+exportButton.addEventListener("click", async () => {
   closeActiveMenu();
-  const snapshot = createSnapshot(state.entries);
-  const filename = `totp-backup-${new Date().toISOString().slice(0, 10)}.json`;
-  downloadTextFile(filename, JSON.stringify(snapshot, null, 2));
-  setStatus("已导出当前备份。", "success");
+
+  try {
+    const snapshot = createSnapshot(state.entries);
+    const filename = `totp-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    const snapshotText = JSON.stringify(snapshot, null, 2);
+    const exportResult = await exportBackupWithDialog(filename, snapshotText);
+
+    if (exportResult === "cancelled") {
+      return;
+    }
+
+    setStatus("已导出当前备份。", "success");
+  } catch (error) {
+    setStatus(error.message, "error");
+  }
 });
 
 importFileInput.addEventListener("change", async () => {

@@ -1,3 +1,5 @@
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
 import Database from "@tauri-apps/plugin-sql";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { sanitizeEntry, validateEntry } from "./totp.js";
@@ -86,4 +88,24 @@ export async function saveEntriesToStore(entries) {
 
 export async function openExternalUrl(url) {
   await openUrl(String(url || ""));
+}
+
+export async function exportBackupWithDialog(suggestedName, text) {
+  const targetPath = await save({
+    title: "导出 JSON 备份",
+    defaultPath: suggestedName,
+    filters: [
+      {
+        name: "JSON 文件",
+        extensions: ["json"],
+      },
+    ],
+  });
+
+  if (!targetPath) {
+    return "cancelled";
+  }
+
+  await writeTextFile(targetPath, text);
+  return "saved";
 }
