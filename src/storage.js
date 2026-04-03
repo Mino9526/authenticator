@@ -1,4 +1,5 @@
 import { sanitizeEntry } from "./totp.js";
+import { loadEntriesFromStore, saveEntriesToStore } from "./tauri.js";
 
 function readDesktopEntries(entries) {
   if (!Array.isArray(entries)) {
@@ -9,17 +10,9 @@ function readDesktopEntries(entries) {
 }
 
 export async function loadEntries() {
-  if (!window.desktopApp?.loadEntries) {
-    throw new Error("当前版本仅支持 Electron 桌面模式。");
-  }
-
-  return readDesktopEntries(await window.desktopApp.loadEntries());
+  return readDesktopEntries(await loadEntriesFromStore());
 }
 
 export async function saveEntries(entries) {
-  if (!window.desktopApp?.saveEntries) {
-    throw new Error("当前版本仅支持 Electron 桌面模式。");
-  }
-
-  return readDesktopEntries(await window.desktopApp.saveEntries(entries));
+  return readDesktopEntries(await saveEntriesToStore(entries));
 }

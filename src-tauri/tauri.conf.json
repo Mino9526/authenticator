@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TOTP Authenticator",
+  "version": "1.0.0",
+  "identifier": "io.github.mino9526.authenticator",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "TOTP Authenticator",
+        "width": 412,
+        "height": 720,
+        "minWidth": 412,
+        "minHeight": 720,
+        "maxWidth": 412,
+        "maxHeight": 720,
+        "resizable": false,
+        "maximizable": false
+      }
+    ]
+  },
+  "plugins": {
+    "sql": {
+      "preload": ["sqlite:authenticator.sqlite"]
+    }
+  },
+  "bundle": {
+    "icon": ["icons/icon.ico"]
+  }
+}

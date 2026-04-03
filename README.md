@@ -1,7 +1,7 @@
 # TOTP Authenticator
 
-一个本地优先的 TOTP 认证器，使用 Electron + SQLite 实现。  
-当前版本为纯桌面架构，不再依赖本地 HTTP 服务。
+一个本地优先的 TOTP 认证器，使用 Tauri 2 + SQLite 实现。  
+发布版为纯桌面应用，不依赖本地 HTTP 服务；开发模式会通过 Vite dev server 提供页面。
 
 ## 当前功能
 
@@ -20,40 +20,73 @@
 ## 运行方式
 
 ```bash
-npm install
 npm start
 ```
 
-## Windows 打包
+说明：
 
-先生成图标：
+- `npm start` 会以标准 Tauri 2 开发模式启动：`tauri dev + Vite`
+- 开发模式下窗口访问的是 `http://localhost:1420`
+- 发布版会把前端静态资源打进应用内，不会访问 `localhost:1420`
+- 前端仍然是当前这套原生 HTML / CSS / JS 页面，只是构建方式切到了 Vite
+
+常用命令：
 
 ```bash
-npm run generate:icon
+npm run dev
+npm run build
+npm start
 ```
 
-再打包：
+## Windows x64 便携版构建
+
+前置条件：
+
+- 可以在 Windows 终端直接执行
+- 也可以在已配置 `cargo-xwin`、LLVM 和 Windows SDK 的 WSL/Linux 环境中交叉构建
+- 已安装 Rust toolchain
+- 如果是 Windows 原生构建，需要已安装 Windows C++ Build Tools / MSVC
+- 已安装 x64 Windows 目标：
+
+```bash
+rustup target add x86_64-pc-windows-msvc
+```
+
+构建 Windows x64 便携版：
 
 ```bash
 npm run dist:win
 ```
 
+如果是在 WSL/Linux 下交叉构建：
+
+```bash
+npm run dist:win:wsl
+```
+
+默认会做两件事：
+
+- 编译 `x86_64-pc-windows-msvc` 目标
+- 跳过安装包，仅生成可执行文件
+
 输出目录：
 
 ```text
-dist/
+src-tauri/target/x86_64-pc-windows-msvc/release/
 ```
 
 当前仅生成：
 
-- Windows `portable` 便携版 `.exe`
+- Windows x64 便携版 `.exe`
+- 不生成安装包
 
 ## 数据存储位置
 
-SQLite 保存在 Electron 用户数据目录，例如 Windows 下通常类似：
+SQLite 保存在 Tauri 的应用配置目录中。  
+Windows 下通常位于 `%APPDATA%/io.github.mino9526.authenticator/` 一类目录，数据库文件名为：
 
 ```text
-%APPDATA%/TOTP Authenticator/
+authenticator.sqlite
 ```
 
 ## 交互说明
@@ -82,11 +115,9 @@ npm test
 ## 项目结构
 
 ```text
-electron/      Electron 主进程与 preload
-src/           前端逻辑、IPC 存储接入与 TOTP 处理
-test/          自动化测试
-build/         打包图标资源
-db.js          SQLite 存储层
+src-tauri/     Tauri 2 Rust 入口、能力配置、图标与原生插件接入
+src/           前端逻辑、Tauri 插件接入、TOTP 处理与纯逻辑测试
+vite.config.js Vite 配置
 index.html     主页面
 styles.css     页面样式
 ```

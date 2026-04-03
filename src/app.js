@@ -11,6 +11,7 @@ import {
   secondsRemaining,
   validateEntry,
 } from "./totp.js";
+import { openExternalUrl } from "./tauri.js";
 import { loadEntries, saveEntries } from "./storage.js";
 
 const entryCount = document.querySelector("#entry-count");
@@ -304,11 +305,6 @@ function downloadTextFile(filename, text) {
 }
 
 async function copyText(text) {
-  if (window.desktopApp?.copyText) {
-    await window.desktopApp.copyText(text);
-    return;
-  }
-
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
     return;
@@ -401,6 +397,16 @@ function renderEntries() {
     const link = node.querySelector(".entry-link");
     if (isSafeHttpUrl(entry.website)) {
       link.href = entry.website;
+      link.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        try {
+          await openExternalUrl(entry.website);
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
     } else {
       link.remove();
     }

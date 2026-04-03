@@ -3,44 +3,25 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Desktop TOTP authenticator with Electron and SQLite persistence.",
-  "main": "electron/main.js",
+  "description": "Desktop TOTP authenticator with Tauri 2 and SQLite persistence.",
   "author": "Mino9526",
   "scripts": {
-    "generate:icon": "node scripts/generate-icon.mjs",
-    "start": "electron .",
-    "desktop": "electron .",
-    "dist:win": "electron-builder --win portable",
+    "dev": "vite --configLoader runner",
+    "build": "vite build --configLoader runner",
+    "preview": "vite preview --configLoader runner",
+    "tauri": "tauri",
+    "start": "tauri dev",
+    "dist:win": "tauri build --target x86_64-pc-windows-msvc --no-bundle",
+    "dist:win:wsl": "tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --no-bundle -- --xwin-arch x86_64",
     "test": "node --test"
   },
   "devDependencies": {
-    "electron": "^37.2.0",
-    "electron-builder": "^26.0.12"
+    "@tauri-apps/cli": "^2.10.1",
+    "esbuild": "^0.27.7",
+    "vite": "^8.0.3"
   },
-  "build": {
-    "appId": "io.github.mino9526.authenticator",
-    "productName": "TOTP Authenticator",
-    "directories": {
-      "output": "dist",
-      "buildResources": "build"
-    },
-    "files": [
-      "electron/**/*",
-      "src/**/*",
-      "index.html",
-      "styles.css",
-      "db.js",
-      "package.json"
-    ],
-    "asar": true,
-    "win": {
-      "icon": "build/icon.ico",
-      "target": [
-        "portable"
-      ]
-    },
-    "portable": {
-      "artifactName": "${productName}-Portable-${version}.${ext}"
-    }
+  "dependencies": {
+    "@tauri-apps/plugin-opener": "^2.5.3",
+    "@tauri-apps/plugin-sql": "^2.3.2"
   }
 }
