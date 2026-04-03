@@ -9,6 +9,7 @@
     "fs:write-files",
     "sql:default",
     "sql:allow-execute",
+    "opener:allow-open-url",
     "opener:allow-default-urls"
   ]
 }

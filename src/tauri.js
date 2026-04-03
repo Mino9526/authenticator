@@ -2,7 +2,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import Database from "@tauri-apps/plugin-sql";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { sanitizeEntry, validateEntry } from "./totp.js";
+import { isSafeHttpUrl, sanitizeEntry, validateEntry } from "./totp.js";
 
 const DB_PATH = "sqlite:authenticator.sqlite";
 const SELECT_ENTRIES_SQL = `
@@ -87,7 +87,16 @@ export async function saveEntriesToStore(entries) {
 }
 
 export async function openExternalUrl(url) {
-  await openUrl(String(url || ""));
+  const normalizedUrl = String(url || "").trim();
+  if (!isSafeHttpUrl(normalizedUrl)) {
+    throw new Error("网址只支持 http 或 https。");
+  }
+
+  try {
+    await openUrl(normalizedUrl);
+  } catch {
+    throw new Error("无法打开网址。");
+  }
 }
 
 export async function exportBackupWithDialog(suggestedName, text) {

@@ -386,7 +386,7 @@ function renderEntries() {
 
     const link = node.querySelector(".entry-link");
     if (isSafeHttpUrl(entry.website)) {
-      link.href = entry.website;
+      link.title = entry.website;
       link.addEventListener("click", async (event) => {
         event.preventDefault();
         event.stopPropagation();

@@ -385,9 +385,12 @@ label textarea[readonly] {
   place-items: center;
   width: 22px;
   height: 22px;
+  padding: 0;
   color: var(--accent);
-  text-decoration: none;
+  background: transparent;
+  border: 0;
   border-radius: 50%;
+  cursor: pointer;
   transition: background 140ms ease, color 140ms ease;
 }
 
