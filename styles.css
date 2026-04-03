@@ -138,45 +138,61 @@ button {
 }
 
 .list-panel {
-  --list-fade-top: 0px;
-  --list-fade-bottom: 0px;
   padding: 0;
   background: transparent;
   border: 0;
   border-radius: 0;
   box-shadow: none;
   min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.list-scroll {
+  height: 100%;
+  min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    #000 var(--list-fade-top),
-    #000 calc(100% - var(--list-fade-bottom)),
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    #000 var(--list-fade-top),
-    #000 calc(100% - var(--list-fade-bottom)),
-    transparent 100%
-  );
 }
 
-.list-panel::-webkit-scrollbar {
+.list-panel::before,
+.list-panel::after {
+  content: "";
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 140ms ease;
+  z-index: 2;
+}
+
+.list-panel::before {
+  position: absolute;
+  top: 0;
+  height: 16px;
+  background: linear-gradient(to bottom, rgba(245, 247, 251, 0.98) 0%, rgba(245, 247, 251, 0.88) 42%, rgba(245, 247, 251, 0) 100%);
+}
+
+.list-panel::after {
+  position: absolute;
+  bottom: 0;
+  height: 18px;
+  background: linear-gradient(to top, var(--bg) 0%, rgba(245, 247, 251, 0) 100%);
+}
+
+.list-scroll::-webkit-scrollbar {
   width: 0;
   height: 0;
   display: none;
 }
 
-.list-panel.has-top-fade {
-  --list-fade-top: 16px;
+.list-panel.has-top-fade::before {
+  opacity: 1;
 }
 
-.list-panel.has-bottom-fade {
-  --list-fade-bottom: 18px;
+.list-panel.has-bottom-fade::after {
+  opacity: 1;
 }
 
 label input,
@@ -253,6 +269,7 @@ label textarea[readonly] {
 
 .content-stack {
   display: grid;
+  grid-template-rows: minmax(0, 1fr);
   gap: 12px;
   margin-top: 0;
   min-height: 0;

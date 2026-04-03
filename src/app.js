@@ -17,6 +17,7 @@ import { loadEntries, saveEntries } from "./storage.js";
 const entryCount = document.querySelector("#entry-count");
 const entriesGrid = document.querySelector("#entries-grid");
 const listPanel = document.querySelector(".list-panel");
+const listScroll = document.querySelector(".list-scroll");
 const toast = document.querySelector("#toast");
 const fabAddButton = document.querySelector("#fab-add-button");
 const topMenu = document.querySelector("#top-menu");
@@ -86,10 +87,10 @@ function updateMeta() {
 }
 
 function updateListFadeState() {
-  const maxScrollTop = listPanel.scrollHeight - listPanel.clientHeight;
+  const maxScrollTop = listScroll.scrollHeight - listScroll.clientHeight;
   const canScroll = maxScrollTop > 1;
-  listPanel.classList.toggle("has-top-fade", canScroll && listPanel.scrollTop > 1);
-  listPanel.classList.toggle("has-bottom-fade", canScroll && listPanel.scrollTop < maxScrollTop - 1);
+  listPanel.classList.toggle("has-top-fade", canScroll && listScroll.scrollTop > 1);
+  listPanel.classList.toggle("has-bottom-fade", canScroll && listScroll.scrollTop < maxScrollTop - 1);
 }
 
 async function persistEntries() {
@@ -589,7 +590,7 @@ window.addEventListener("resize", () => {
   }
 });
 
-listPanel.addEventListener("scroll", updateListFadeState);
+listScroll.addEventListener("scroll", updateListFadeState);
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") {
