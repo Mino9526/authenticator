@@ -121,6 +121,12 @@ function closeActiveMenu() {
   closeAllMenus();
 }
 
+function handleMenuWheel() {
+  if (activeMenuShell) {
+    closeActiveMenu();
+  }
+}
+
 function positionMenuPanel(menuShell) {
   const trigger = menuShell.querySelector(".menu-button, .top-menu-button");
   const panel = menuShell.querySelector(".entry-menu-panel, .top-menu-panel");
@@ -591,6 +597,7 @@ window.addEventListener("resize", () => {
 });
 
 listScroll.addEventListener("scroll", updateListFadeState);
+window.addEventListener("wheel", handleMenuWheel, { capture: true, passive: true });
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") {
