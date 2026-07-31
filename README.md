@@ -18,7 +18,7 @@
   <a href="LICENSE">
     <img src="https://img.shields.io/github/license/Mino9526/authenticator" alt="MIT License">
   </a>
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-informational" alt="Windows 和 macOS">
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-informational" alt="Windows、macOS 和 Linux">
   <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri 2">
 </p>
 
@@ -26,7 +26,7 @@
 
 TOTP Authenticator 用于在桌面端管理并生成基于时间的一次性密码。条目在写入本机 SQLite 前会由 Rust 后端加密，验证码也只在 Rust 后端计算；发布版不依赖本地 HTTP 服务或远程后端。
 
-项目采用原生 HTML、CSS 和 JavaScript 构建轻量界面，并通过 Tauri 2 集成 Rust 核心，可在 Windows 和 macOS 上运行。
+项目采用原生 HTML、CSS 和 JavaScript 构建轻量界面，并通过 Tauri 2 集成 Rust 核心，可在 Windows、macOS 和 Linux 上运行。
 
 ## 功能亮点
 
@@ -51,9 +51,13 @@ TOTP Authenticator 用于在桌面端管理并生成基于时间的一次性密�
 
 | 平台 | 架构 | 发布产物 |
 | --- | --- | --- |
-| Windows | x86_64 | NSIS 安装包、便携版 EXE |
-| macOS | ARM64 / Apple Silicon | DMG、应用归档 |
-| macOS | x86_64 / Intel | DMG、应用归档 |
+| Windows | x64 | `authenticator-1.1.2-windows-x64.exe`、`authenticator-1.1.2-windows-x64.zip` |
+| macOS | ARM64 / Apple Silicon | `authenticator-1.1.2-macos-arm64.dmg` |
+| macOS | x64 / Intel | `authenticator-1.1.2-macos-x64.dmg` |
+| Linux | x64 | `authenticator-1.1.2-linux-x64.AppImage`、`authenticator-1.1.2-linux-x64.deb`、`authenticator-1.1.2-linux-x64.rpm` |
+| Linux | ARM64 | `authenticator-1.1.2-linux-arm64.AppImage`、`authenticator-1.1.2-linux-arm64.deb`、`authenticator-1.1.2-linux-arm64.rpm` |
+
+Windows 的 `.exe` 是 NSIS 安装包，`.zip` 是便携版压缩包。Linux 用户可以选择通用的 AppImage、适用于 Debian/Ubuntu 系发行版的 `.deb`，或适用于 Fedora/RHEL/openSUSE 系发行版的 `.rpm`；首次运行 AppImage 前需要为文件添加可执行权限。
 
 > [!NOTE]
 > 当前发布产物尚未配置 Windows 或 Apple 代码签名，因此 Windows SmartScreen 或 macOS Gatekeeper 可能显示安全提示。
@@ -123,9 +127,11 @@ src-tauri/target/release/bundle/
 
 1. 校验 npm、Cargo 与 Tauri 版本号。
 2. 创建或复用草稿 Release。
-3. 并行构建 Windows x64、macOS ARM64 和 macOS x86_64。
-4. 上传安装包、便携程序和应用归档。
+3. 并行构建 Windows x64、macOS x64/ARM64 和 Linux x64/ARM64。
+4. 按 `authenticator-{版本}-{操作系统}-{CPU 架构}.{扩展名}` 命名并上传安装包、便携压缩包和应用镜像。
 5. 所有平台成功后才将草稿转为正式 Release。
+
+Release 名称与版本标签保持一致，例如标签 `v1.1.2` 对应的 Release 名称也是 `v1.1.2`。
 
 发布前请同步更新以下版本：
 
@@ -136,7 +142,7 @@ src-tauri/target/release/bundle/
 提交版本修改后创建并推送标签：
 
 ```bash
-git tag vX.Y.Z
+git tag -s vX.Y.Z -m "TOTP Authenticator vX.Y.Z"
 git push origin master vX.Y.Z
 ```
 

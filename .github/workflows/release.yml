@@ -3,7 +3,7 @@ name: Build and release
 on:
   push:
     tags:
-      - "v*"
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       tag:
@@ -82,7 +82,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.metadata.outputs.tag }}
-          RELEASE_VERSION: ${{ steps.metadata.outputs.version }}
           IS_PRERELEASE: ${{ steps.metadata.outputs.prerelease }}
         run: |
           set -euo pipefail
@@ -101,11 +100,15 @@ jobs:
             gh release create "${RELEASE_TAG}" \
               --repo "${GITHUB_REPOSITORY}" \
               --target "${GITHUB_SHA}" \
-              --title "TOTP Authenticator ${RELEASE_VERSION}" \
+              --title "${RELEASE_TAG}" \
               --generate-notes \
               --draft \
               "${prerelease_args[@]}"
           fi
+
+          gh release edit "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${RELEASE_TAG}"
 
           release_id="$(gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json databaseId --jq '.databaseId')"
           echo "release_id=${release_id}" >> "${GITHUB_OUTPUT}"
@@ -122,17 +125,32 @@ jobs:
             runner: windows-latest
             target: x86_64-pc-windows-msvc
             bundles: nsis
-            upload_plain_binary: true
+            asset_os: windows
+            asset_arch: x64
           - name: macOS ARM64
             runner: macos-15
             target: aarch64-apple-darwin
             bundles: dmg
-            upload_plain_binary: false
+            asset_os: macos
+            asset_arch: arm64
           - name: macOS x86_64
             runner: macos-15-intel
             target: x86_64-apple-darwin
             bundles: dmg
-            upload_plain_binary: false
+            asset_os: macos
+            asset_arch: x64
+          - name: Linux x86_64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: "deb,rpm,appimage"
+            asset_os: linux
+            asset_arch: x64
+          - name: Linux ARM64
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            bundles: "deb,rpm,appimage"
+            asset_os: linux
+            asset_arch: arm64
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out repository
@@ -158,6 +176,23 @@ jobs:
           key: ${{ matrix.target }}
           cache-on-failure: true
 
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            rpm \
+            xdg-utils
+
       - name: Install frontend dependencies
         run: npm ci
 
@@ -172,11 +207,32 @@ jobs:
           releaseId: ${{ needs.prepare_release.outputs.release_id }}
           tagName: ${{ needs.prepare_release.outputs.tag }}
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --ci
-          uploadPlainBinary: ${{ matrix.upload_plain_binary }}
+          uploadPlainBinary: false
           uploadUpdaterJson: false
           uploadUpdaterSignatures: false
-          releaseAssetNamePattern: TOTP-Authenticator_[version]_[platform]_[arch][setup][ext]
+          releaseAssetNamePattern: authenticator-[version]-${{ matrix.asset_os }}-${{ matrix.asset_arch }}[ext]
           retryAttempts: 2
+
+      - name: Package and upload Windows portable archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare_release.outputs.tag }}
+          TARGET: ${{ matrix.target }}
+          ASSET_BASENAME: authenticator-${{ needs.prepare_release.outputs.version }}-${{ matrix.asset_os }}-${{ matrix.asset_arch }}
+        run: |
+          $portableDirectory = Join-Path $env:RUNNER_TEMP "portable"
+          $portableExecutable = Join-Path $portableDirectory "authenticator.exe"
+          $portableArchive = Join-Path $env:RUNNER_TEMP "$env:ASSET_BASENAME.zip"
+
+          New-Item -ItemType Directory -Path $portableDirectory -Force | Out-Null
+          Copy-Item "src-tauri/target/$env:TARGET/release/totp-authenticator.exe" $portableExecutable
+          Compress-Archive -Path $portableExecutable -DestinationPath $portableArchive -Force
+
+          gh release upload $env:RELEASE_TAG $portableArchive `
+            --repo $env:GITHUB_REPOSITORY `
+            --clobber
 
   publish_release:
     name: Publish release
