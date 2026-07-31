@@ -1969,7 +1969,14 @@ mod tests {
             assert!(!initial_status.initialized);
             assert_eq!(initial_status.legacy_entry_count, 1);
 
-            let status = service.initialize("initial password").await.unwrap();
+            let test_password = format!(
+                "test-password-{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            );
+            let status = service.initialize(&test_password).await.unwrap();
             assert!(status.initialized);
             assert!(status.unlocked);
             assert_eq!(status.legacy_entry_count, 0);
