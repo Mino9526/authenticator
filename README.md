@@ -97,8 +97,8 @@ src-tauri/target/x86_64-pc-windows-msvc/release/
 提交版本修改后，推送对应的 `v` 开头标签即可发布：
 
 ```bash
-git tag v1.0.1
-git push origin v1.0.1
+git tag v1.0.2
+git push origin v1.0.2
 ```
 
 也可以在 GitHub 的 Actions 页面手动运行 `Build and release`，输入与应用版本一致的标签。工作流会先创建草稿 Release，全部平台构建成功后再正式发布；如果任一平台失败，Release 会保留为草稿，修复后可重新运行。
