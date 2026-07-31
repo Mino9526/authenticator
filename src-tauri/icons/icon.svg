@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <path
+    d="M512 148C607 203 714 245 831 275C840 278 846 286 846 296V450C846 663 726 847 512 930C298 847 178 663 178 450V296C178 286 184 278 193 275C310 245 417 203 512 148Z"
+    stroke="#1658C7"
+    stroke-width="42"
+    stroke-linejoin="round"
+  />
+  <circle
+    cx="512"
+    cy="520"
+    r="146"
+    stroke="#1658C7"
+    stroke-width="48"
+    stroke-linecap="round"
+    stroke-dasharray="330 128 330 128"
+    transform="rotate(-90 512 520)"
+  />
+  <circle cx="512" cy="520" r="54" fill="#1658C7" />
+</svg>
