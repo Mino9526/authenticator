@@ -1919,21 +1919,18 @@ mod tests {
 
     #[test]
     fn backup_round_trip_and_wrong_password_detection() {
-        let correct_password = format!("{} {}", "correct", "horse");
-        let wrong_password = format!("{} {}", "wrong", "password");
-
-        let backup = create_encrypted_backup(vec![test_entry()], &correct_password).unwrap();
-        let entries = decrypt_backup(&backup, &correct_password).unwrap();
+        let backup = create_encrypted_backup(vec![test_entry()], "correct horse").unwrap();
+        let entries = decrypt_backup(&backup, "correct horse").unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].secret, test_entry().secret);
-        assert!(decrypt_backup(&backup, &wrong_password).is_err());
+        assert!(decrypt_backup(&backup, "wrong password").is_err());
 
         let mut tampered: EncryptedBackup = serde_json::from_str(&backup).unwrap();
         let mut ciphertext = BASE64.decode(&tampered.ciphertext).unwrap();
         ciphertext[0] ^= 1;
         tampered.ciphertext = BASE64.encode(ciphertext);
         let tampered = serde_json::to_string(&tampered).unwrap();
-        assert!(decrypt_backup(&tampered, &correct_password).is_err());
+        assert!(decrypt_backup(&tampered, "correct horse").is_err());
     }
 
     #[test]
@@ -1972,14 +1969,7 @@ mod tests {
             assert!(!initial_status.initialized);
             assert_eq!(initial_status.legacy_entry_count, 1);
 
-            let test_password = format!(
-                "test-password-{}",
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            );
-            let status = service.initialize(&test_password).await.unwrap();
+            let status = service.initialize("initial password").await.unwrap();
             assert!(status.initialized);
             assert!(status.unlocked);
             assert_eq!(status.legacy_entry_count, 0);
@@ -2005,31 +1995,20 @@ mod tests {
             assert_eq!(codes.len(), 1);
             assert_eq!(codes[0].code.as_ref().unwrap().len(), 8);
 
-            let seed = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let initial_password = format!("initial-{seed}");
-            let updated_password = format!("updated-{seed}");
-            let backup_password = format!("backup-{seed}");
-
-            let backup = service
-                .export_backup(backup_password.as_str())
-                .await
-                .unwrap();
+            let backup = service.export_backup("backup password").await.unwrap();
             assert!(!backup.contains("GEZDGNBV"));
             service
-                .change_password(initial_password.as_str(), updated_password.as_str())
+                .change_password("initial password", "updated password")
                 .await
                 .unwrap();
             service.lock().unwrap();
-            assert!(service.unlock(initial_password.as_str()).await.is_err());
-            service.unlock(updated_password.as_str()).await.unwrap();
+            assert!(service.unlock("initial password").await.is_err());
+            service.unlock("updated password").await.unwrap();
 
             service.remove_entry("legacy-entry").await.unwrap();
             assert!(service.public_entries().await.unwrap().is_empty());
             let import = service
-                .import_backup_text(&backup, Some(backup_password.as_str()))
+                .import_backup_text(&backup, Some("backup password"))
                 .await
                 .unwrap();
             assert_eq!(import.added, 1);
@@ -2037,7 +2016,7 @@ mod tests {
             assert_eq!(service.public_entries().await.unwrap().len(), 1);
 
             let repeated_import = service
-                .import_backup_text(&format!("\u{feff}{backup}"), Some(backup_password.as_str()))
+                .import_backup_text(&format!("\u{feff}{backup}"), Some("backup password"))
                 .await
                 .unwrap();
             assert_eq!(repeated_import.added, 0);
