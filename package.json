@@ -5,14 +5,13 @@
   "type": "module",
   "description": "Desktop TOTP authenticator with Tauri 2 and SQLite persistence.",
   "author": "Mino9526",
+  "license": "MIT",
   "scripts": {
     "dev": "vite --configLoader runner",
     "build": "vite build --configLoader runner",
     "preview": "vite preview --configLoader runner",
     "tauri": "tauri",
     "start": "tauri dev",
-    "dist:win": "tauri build --target x86_64-pc-windows-msvc --no-bundle",
-    "dist:win:wsl": "tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --no-bundle -- --xwin-arch x86_64",
     "test": "node --test"
   },
   "devDependencies": {
