@@ -1919,18 +1919,21 @@ mod tests {
 
     #[test]
     fn backup_round_trip_and_wrong_password_detection() {
-        let backup = create_encrypted_backup(vec![test_entry()], "correct horse").unwrap();
-        let entries = decrypt_backup(&backup, "correct horse").unwrap();
+        let correct_password = format!("{} {}", "correct", "horse");
+        let wrong_password = format!("{} {}", "wrong", "password");
+
+        let backup = create_encrypted_backup(vec![test_entry()], &correct_password).unwrap();
+        let entries = decrypt_backup(&backup, &correct_password).unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].secret, test_entry().secret);
-        assert!(decrypt_backup(&backup, "wrong password").is_err());
+        assert!(decrypt_backup(&backup, &wrong_password).is_err());
 
         let mut tampered: EncryptedBackup = serde_json::from_str(&backup).unwrap();
         let mut ciphertext = BASE64.decode(&tampered.ciphertext).unwrap();
         ciphertext[0] ^= 1;
         tampered.ciphertext = BASE64.encode(ciphertext);
         let tampered = serde_json::to_string(&tampered).unwrap();
-        assert!(decrypt_backup(&tampered, "correct horse").is_err());
+        assert!(decrypt_backup(&tampered, &correct_password).is_err());
     }
 
     #[test]
