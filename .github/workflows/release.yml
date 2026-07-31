@@ -1,0 +1,198 @@
+name: Build and release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (must match the version in tauri.conf.json, for example v1.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare_release:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      version: ${{ steps.metadata.outputs.version }}
+      prerelease: ${{ steps.metadata.outputs.prerelease }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate release versions
+        id: metadata
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if git show-ref --verify --quiet "refs/tags/${REQUESTED_TAG}"; then
+            git checkout --detach "refs/tags/${REQUESTED_TAG}"
+          fi
+
+          tauri_version="$(node -p "JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json', 'utf8')).version")"
+          package_version="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+          cargo_version="$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -n 1)"
+          expected_tag="v${tauri_version}"
+
+          if [[ "${package_version}" != "${tauri_version}" || "${cargo_version}" != "${tauri_version}" ]]; then
+            echo "::error::Version mismatch: package.json=${package_version}, Cargo.toml=${cargo_version}, tauri.conf.json=${tauri_version}"
+            exit 1
+          fi
+
+          if [[ "${REQUESTED_TAG}" != "${expected_tag}" ]]; then
+            echo "::error::Release tag ${REQUESTED_TAG} does not match application version ${expected_tag}"
+            exit 1
+          fi
+
+          prerelease=false
+          if [[ "${tauri_version}" == *-* ]]; then
+            prerelease=true
+          fi
+
+          {
+            echo "tag=${REQUESTED_TAG}"
+            echo "version=${tauri_version}"
+            echo "prerelease=${prerelease}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Create or reuse draft release
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.metadata.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.metadata.outputs.version }}
+          IS_PRERELEASE: ${{ steps.metadata.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          if release_json="$(gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json databaseId,isDraft 2>/dev/null)"; then
+            if [[ "$(jq -r '.isDraft' <<< "${release_json}")" != "true" ]]; then
+              echo "::error::Release ${RELEASE_TAG} already exists and is already published"
+              exit 1
+            fi
+          else
+            prerelease_args=()
+            if [[ "${IS_PRERELEASE}" == "true" ]]; then
+              prerelease_args+=(--prerelease)
+            fi
+
+            gh release create "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --target "${GITHUB_SHA}" \
+              --title "TOTP Authenticator ${RELEASE_VERSION}" \
+              --generate-notes \
+              --draft \
+              "${prerelease_args[@]}"
+          fi
+
+          release_id="$(gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json databaseId --jq '.databaseId')"
+          echo "release_id=${release_id}" >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: prepare_release
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+            upload_plain_binary: true
+          - name: macOS ARM64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            bundles: dmg
+            upload_plain_binary: false
+          - name: macOS x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            bundles: dmg
+            upload_plain_binary: false
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare_release.outputs.tag }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build and upload release assets
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          releaseId: ${{ needs.prepare_release.outputs.release_id }}
+          tagName: ${{ needs.prepare_release.outputs.tag }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --ci
+          uploadPlainBinary: ${{ matrix.upload_plain_binary }}
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+          releaseAssetNamePattern: TOTP-Authenticator_[version]_[platform]_[arch][setup][ext]
+          retryAttempts: 2
+
+  publish_release:
+    name: Publish release
+    needs:
+      - prepare_release
+      - build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish completed release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare_release.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          gh release edit "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --draft=false
+
+          release_url="$(gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json url --jq '.url')"
+          {
+            echo "### Release published"
+            echo
+            echo "[${RELEASE_TAG}](${release_url})"
+          } >> "${GITHUB_STEP_SUMMARY}"

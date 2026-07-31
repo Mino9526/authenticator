@@ -80,6 +80,31 @@ src-tauri/target/x86_64-pc-windows-msvc/release/
 - Windows x64 便携版 `.exe`
 - 不生成安装包
 
+## GitHub Actions 多平台发布
+
+仓库内的 `.github/workflows/release.yml` 会构建并发布以下产物：
+
+- Windows x64：NSIS 安装包和便携版 `.exe`
+- macOS ARM64（Apple Silicon）：DMG 和应用归档
+- macOS x86_64（Intel）：DMG 和应用归档
+
+发布前，需要确保以下三个文件中的版本号一致：
+
+- `package.json`
+- `src-tauri/Cargo.toml`
+- `src-tauri/tauri.conf.json`
+
+提交版本修改后，推送对应的 `v` 开头标签即可发布：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+也可以在 GitHub 的 Actions 页面手动运行 `Build and release`，输入与应用版本一致的标签。工作流会先创建草稿 Release，全部平台构建成功后再正式发布；如果任一平台失败，Release 会保留为草稿，修复后可重新运行。
+
+当前工作流未配置 Windows 或 Apple 代码签名。未签名的安装包仍可构建和下载，但 Windows SmartScreen 或 macOS Gatekeeper 可能显示安全提示。
+
 ## 数据存储位置
 
 SQLite 保存在 Tauri 的应用配置目录中。  
