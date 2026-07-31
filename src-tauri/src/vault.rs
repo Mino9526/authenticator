@@ -1995,20 +1995,31 @@ mod tests {
             assert_eq!(codes.len(), 1);
             assert_eq!(codes[0].code.as_ref().unwrap().len(), 8);
 
-            let backup = service.export_backup("backup password").await.unwrap();
+            let seed = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let initial_password = format!("initial-{seed}");
+            let updated_password = format!("updated-{seed}");
+            let backup_password = format!("backup-{seed}");
+
+            let backup = service
+                .export_backup(backup_password.as_str())
+                .await
+                .unwrap();
             assert!(!backup.contains("GEZDGNBV"));
             service
-                .change_password("initial password", "updated password")
+                .change_password(initial_password.as_str(), updated_password.as_str())
                 .await
                 .unwrap();
             service.lock().unwrap();
-            assert!(service.unlock("initial password").await.is_err());
-            service.unlock("updated password").await.unwrap();
+            assert!(service.unlock(initial_password.as_str()).await.is_err());
+            service.unlock(updated_password.as_str()).await.unwrap();
 
             service.remove_entry("legacy-entry").await.unwrap();
             assert!(service.public_entries().await.unwrap().is_empty());
             let import = service
-                .import_backup_text(&backup, Some("backup password"))
+                .import_backup_text(&backup, Some(backup_password.as_str()))
                 .await
                 .unwrap();
             assert_eq!(import.added, 1);
@@ -2016,7 +2027,7 @@ mod tests {
             assert_eq!(service.public_entries().await.unwrap().len(), 1);
 
             let repeated_import = service
-                .import_backup_text(&format!("\u{feff}{backup}"), Some("backup password"))
+                .import_backup_text(&format!("\u{feff}{backup}"), Some(backup_password.as_str()))
                 .await
                 .unwrap();
             assert_eq!(repeated_import.added, 0);
