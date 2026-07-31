@@ -6,7 +6,49 @@
     <title>TOTP Authenticator</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body>
+  <body class="vault-locked">
+    <div id="vault-gate" class="vault-gate open" aria-hidden="false">
+      <section class="vault-card" role="dialog" aria-modal="true" aria-labelledby="vault-title">
+        <div class="vault-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <rect x="5" y="10" width="14" height="10" rx="3"></rect>
+            <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
+            <path d="M12 14v2"></path>
+          </svg>
+        </div>
+        <p class="app-kicker">Encrypted Vault</p>
+        <h1 id="vault-title">打开保险库</h1>
+        <p id="vault-description" class="vault-description">正在读取保险库状态…</p>
+        <p id="vault-migration-notice" class="vault-notice is-hidden"></p>
+        <form id="vault-form" class="vault-form">
+          <label>
+            主密码
+            <input
+              id="vault-password-input"
+              type="password"
+              required
+              maxlength="1024"
+              autocomplete="current-password"
+              placeholder="输入主密码"
+            />
+          </label>
+          <label id="vault-confirm-group" class="is-hidden">
+            确认主密码
+            <input
+              id="vault-confirm-input"
+              type="password"
+              maxlength="1024"
+              autocomplete="new-password"
+              placeholder="再次输入主密码"
+            />
+          </label>
+          <p id="vault-error" class="form-error" role="alert"></p>
+          <button id="vault-submit-button" class="primary-button vault-submit" type="submit">继续</button>
+        </form>
+        <p class="vault-footnote">密钥只在解锁期间保留于应用内存，不会保存主密码。</p>
+      </section>
+    </div>
+
     <div class="app-shell">
       <header class="topbar">
         <div>
@@ -20,11 +62,14 @@
               <span class="icon-dots" aria-hidden="true"></span>
             </button>
             <div class="top-menu-panel">
-              <button id="export-button" class="menu-item" type="button">导出 JSON</button>
+              <button id="export-button" class="menu-item" type="button">导出加密备份</button>
               <label class="menu-file-item">
-                导入 JSON
-                <input id="import-file-input" type="file" accept=".json,.txt" />
+                导入备份
+                <input id="import-file-input" type="file" accept=".totp,.json,.txt" />
               </label>
+              <div class="menu-separator"></div>
+              <button id="change-password-button" class="menu-item" type="button">修改主密码</button>
+              <button id="lock-button" class="menu-item" type="button">立即锁定</button>
             </div>
           </div>
         </div>
@@ -85,7 +130,14 @@
           </label>
           <label>
             密钥
-            <input id="secret-input" name="secret" required placeholder="Base32 密钥" spellcheck="false" />
+            <input
+              id="secret-input"
+              name="secret"
+              required
+              placeholder="Base32 密钥"
+              spellcheck="false"
+              autocomplete="off"
+            />
           </label>
           <label>
             算法
@@ -122,6 +174,39 @@
           <button id="confirm-cancel-button" class="secondary-button" type="button">取消</button>
           <button id="confirm-accept-button" class="primary-button" type="button">确认</button>
         </div>
+      </section>
+    </div>
+
+    <div id="password-backdrop" class="password-backdrop" aria-hidden="true">
+      <section class="password-dialog" role="dialog" aria-modal="true" aria-labelledby="password-dialog-title">
+        <h2 id="password-dialog-title">输入密码</h2>
+        <p id="password-dialog-message"></p>
+        <form id="password-dialog-form">
+          <label>
+            密码
+            <input
+              id="password-dialog-input"
+              type="password"
+              required
+              maxlength="1024"
+              autocomplete="current-password"
+            />
+          </label>
+          <label id="password-dialog-confirm-group" class="is-hidden">
+            确认密码
+            <input
+              id="password-dialog-confirm-input"
+              type="password"
+              maxlength="1024"
+              autocomplete="new-password"
+            />
+          </label>
+          <p id="password-dialog-error" class="form-error" role="alert"></p>
+          <div class="confirm-actions">
+            <button id="password-dialog-cancel" class="secondary-button" type="button">取消</button>
+            <button id="password-dialog-accept" class="primary-button" type="submit">确认</button>
+          </div>
+        </form>
       </section>
     </div>
 

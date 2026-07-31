@@ -1,18 +1,27 @@
 import {
-  createSnapshot,
   formatOtp,
-  generateTotp,
+  isEncryptedBackupText,
   isSafeHttpUrl,
-  mergeImportedEntries,
   normalizeSecret,
   parseEntryKey,
-  parseImportText,
   sanitizeEntry,
-  secondsRemaining,
   validateEntry,
 } from "./totp.js";
-import { exportBackupWithDialog, openExternalUrl } from "./tauri.js";
-import { loadEntries, saveEntries } from "./storage.js";
+import {
+  changeMasterPassword,
+  createEncryptedBackup,
+  exportBackupWithDialog,
+  getErrorMessage,
+  getVaultStatus,
+  initializeVault,
+  isVaultLockedError,
+  lockVault,
+  openExternalUrl,
+  restoreBackup,
+  touchVault,
+  unlockVault,
+} from "./tauri.js";
+import { loadCodes, loadEntries, removeEntry, saveEntry } from "./storage.js";
 
 const entryCount = document.querySelector("#entry-count");
 const entriesGrid = document.querySelector("#entries-grid");
@@ -23,6 +32,8 @@ const fabAddButton = document.querySelector("#fab-add-button");
 const topMenu = document.querySelector("#top-menu");
 const topMenuButton = document.querySelector("#top-menu-button");
 const exportButton = document.querySelector("#export-button");
+const changePasswordButton = document.querySelector("#change-password-button");
+const lockButton = document.querySelector("#lock-button");
 const resetFormButton = document.querySelector("#reset-form-button");
 const editorBackdrop = document.querySelector("#editor-backdrop");
 const editorTitle = document.querySelector("#editor-title");
@@ -35,8 +46,27 @@ const confirmTitle = document.querySelector("#confirm-title");
 const confirmMessage = document.querySelector("#confirm-message");
 const confirmCancelButton = document.querySelector("#confirm-cancel-button");
 const confirmAcceptButton = document.querySelector("#confirm-accept-button");
+const passwordBackdrop = document.querySelector("#password-backdrop");
+const passwordDialogTitle = document.querySelector("#password-dialog-title");
+const passwordDialogMessage = document.querySelector("#password-dialog-message");
+const passwordDialogForm = document.querySelector("#password-dialog-form");
+const passwordDialogInput = document.querySelector("#password-dialog-input");
+const passwordDialogConfirmGroup = document.querySelector("#password-dialog-confirm-group");
+const passwordDialogConfirmInput = document.querySelector("#password-dialog-confirm-input");
+const passwordDialogError = document.querySelector("#password-dialog-error");
+const passwordDialogCancel = document.querySelector("#password-dialog-cancel");
+const passwordDialogAccept = document.querySelector("#password-dialog-accept");
+const vaultGate = document.querySelector("#vault-gate");
+const vaultForm = document.querySelector("#vault-form");
+const vaultTitle = document.querySelector("#vault-title");
+const vaultDescription = document.querySelector("#vault-description");
+const vaultMigrationNotice = document.querySelector("#vault-migration-notice");
+const vaultPasswordInput = document.querySelector("#vault-password-input");
+const vaultConfirmGroup = document.querySelector("#vault-confirm-group");
+const vaultConfirmInput = document.querySelector("#vault-confirm-input");
+const vaultError = document.querySelector("#vault-error");
+const vaultSubmitButton = document.querySelector("#vault-submit-button");
 const template = document.querySelector("#entry-template");
-
 const entryForm = document.querySelector("#entry-form");
 
 const entryFields = {
@@ -56,19 +86,28 @@ const state = {
   entries: [],
   codes: new Map(),
   entryNodes: new Map(),
+  unlocked: false,
+  vaultMode: "unlock",
+  autoLockSeconds: 300,
 };
 
 let toastTimer;
+let clipboardClearTimer;
 let confirmResolver = null;
+let passwordDialogResolver = null;
+let passwordDialogOptions = null;
 let activeMenuShell = null;
 let activeMenuState = null;
 let editorCloseTimer = null;
+let lastVaultTouch = 0;
+let refreshInFlight = false;
 
 const EDITOR_TRANSITION_MS = 220;
+const CLIPBOARD_CLEAR_MS = 30_000;
+const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
 
 function setStatus(message, type = "") {
   clearTimeout(toastTimer);
-
   if (!message) {
     toast.textContent = "";
     toast.className = "toast";
@@ -79,7 +118,7 @@ function setStatus(message, type = "") {
   toast.className = `toast visible ${type}`.trim();
   toastTimer = window.setTimeout(() => {
     toast.className = "toast";
-  }, type === "error" ? 4200 : 2600);
+  }, type === "error" ? 5000 : 2800);
 }
 
 function updateMeta() {
@@ -93,17 +132,12 @@ function updateListFadeState() {
   listPanel.classList.toggle("has-bottom-fade", canScroll && listScroll.scrollTop < maxScrollTop - 1);
 }
 
-async function persistEntries() {
-  state.entries = await saveEntries(state.entries);
-  updateMeta();
-  renderEntries();
-}
-
 function syncOverlayState() {
   const hasOverlay =
     editorBackdrop.classList.contains("open") ||
     editorBackdrop.classList.contains("closing") ||
-    confirmBackdrop.classList.contains("open");
+    confirmBackdrop.classList.contains("open") ||
+    passwordBackdrop.classList.contains("open");
   document.body.classList.toggle("overlay-open", hasOverlay);
 }
 
@@ -112,7 +146,6 @@ function closeAllMenus() {
     menuShell.classList.remove("open");
     menuShell.querySelector(".menu-button, .top-menu-button")?.setAttribute("aria-expanded", "false");
   }
-
   activeMenuShell = null;
   activeMenuState = null;
 }
@@ -136,24 +169,15 @@ function positionMenuPanel(menuShell) {
 
   const triggerRect = trigger.getBoundingClientRect();
   const panelRect = panel.getBoundingClientRect();
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
   const spacing = 12;
-
-  let left = triggerRect.right - panelRect.width;
-  left = Math.min(left, viewportWidth - panelRect.width - spacing);
+  let left = Math.min(triggerRect.right - panelRect.width, window.innerWidth - panelRect.width - spacing);
   left = Math.max(spacing, left);
-
   let top = triggerRect.bottom + 8;
-  if (top + panelRect.height > viewportHeight - spacing) {
+  if (top + panelRect.height > window.innerHeight - spacing) {
     top = triggerRect.top - panelRect.height - 8;
   }
-  if (top < spacing) {
-    top = spacing;
-  }
-
   panel.style.left = `${left}px`;
-  panel.style.top = `${top}px`;
+  panel.style.top = `${Math.max(spacing, top)}px`;
 }
 
 function openMenu(menuShell, menuState) {
@@ -174,17 +198,17 @@ function toggleEntryMenu(menuShell, menuState) {
     closeAllMenus();
     return;
   }
-
   openMenu(menuShell, menuState);
 }
 
-function setSecretFieldsLocked(locked) {
-  entryFields.secret.readOnly = locked;
-  entryFields.secret.toggleAttribute("data-locked", locked);
-  entryFields.algorithm.disabled = locked;
-  entryFields.digits.disabled = locked;
-  entryFields.period.readOnly = locked;
-  entryFields.period.toggleAttribute("data-locked", locked);
+function setSecretFieldMode(mode, secret = "") {
+  const editing = mode === "edit";
+  const imported = mode === "import";
+  entryFields.secret.value = editing ? "" : secret;
+  entryFields.secret.readOnly = editing || imported;
+  entryFields.secret.required = !editing;
+  entryFields.secret.toggleAttribute("data-locked", editing || imported);
+  entryFields.secret.placeholder = editing ? "已加密保存，编辑时不会显示" : "Base32 密钥";
 }
 
 function setQuickImportLocked(locked) {
@@ -207,7 +231,7 @@ function resetEntryForm() {
   setResetButtonVisible(true);
   setQuickImportVisible(true);
   setQuickImportLocked(false);
-  setSecretFieldsLocked(false);
+  setSecretFieldMode("new");
   entryFields.algorithm.value = "SHA1";
   entryFields.digits.value = "6";
   entryFields.period.value = "30";
@@ -230,7 +254,6 @@ function closeEntryPanel({ reset = true } = {}) {
   if (!editorBackdrop.classList.contains("open") && !editorBackdrop.classList.contains("closing")) {
     return;
   }
-
   window.clearTimeout(editorCloseTimer);
   if (document.activeElement instanceof HTMLElement) {
     document.activeElement.blur();
@@ -238,7 +261,6 @@ function closeEntryPanel({ reset = true } = {}) {
   editorBackdrop.classList.remove("open");
   editorBackdrop.classList.add("closing");
   syncOverlayState();
-
   editorCloseTimer = window.setTimeout(() => {
     editorBackdrop.classList.remove("closing");
     editorBackdrop.setAttribute("aria-hidden", "true");
@@ -254,7 +276,6 @@ function openConfirmDialog({ title, message, confirmLabel = "确认", cancelLabe
     if (confirmResolver) {
       confirmResolver(false);
     }
-
     confirmResolver = resolve;
     confirmTitle.textContent = title;
     confirmMessage.textContent = message;
@@ -271,7 +292,6 @@ function closeConfirmDialog(confirmed) {
   confirmBackdrop.classList.remove("open");
   confirmBackdrop.setAttribute("aria-hidden", "true");
   syncOverlayState();
-
   if (confirmResolver) {
     const resolver = confirmResolver;
     confirmResolver = null;
@@ -279,23 +299,66 @@ function closeConfirmDialog(confirmed) {
   }
 }
 
+function openPasswordDialog({
+  title,
+  message,
+  confirmLabel,
+  requireConfirmation = false,
+  minimumLength = 0,
+}) {
+  return new Promise((resolve) => {
+    if (passwordDialogResolver) {
+      passwordDialogResolver(null);
+    }
+    passwordDialogResolver = resolve;
+    passwordDialogOptions = { requireConfirmation, minimumLength };
+    passwordDialogTitle.textContent = title;
+    passwordDialogMessage.textContent = message;
+    passwordDialogAccept.textContent = confirmLabel;
+    passwordDialogConfirmGroup.classList.toggle("is-hidden", !requireConfirmation);
+    passwordDialogInput.autocomplete = requireConfirmation ? "new-password" : "current-password";
+    passwordDialogInput.value = "";
+    passwordDialogConfirmInput.value = "";
+    passwordDialogError.textContent = "";
+    passwordBackdrop.classList.add("open");
+    passwordBackdrop.setAttribute("aria-hidden", "false");
+    syncOverlayState();
+    requestAnimationFrame(() => passwordDialogInput.focus());
+  });
+}
+
+function closePasswordDialog(result) {
+  passwordBackdrop.classList.remove("open");
+  passwordBackdrop.setAttribute("aria-hidden", "true");
+  passwordDialogInput.value = "";
+  passwordDialogConfirmInput.value = "";
+  passwordDialogError.textContent = "";
+  passwordDialogOptions = null;
+  syncOverlayState();
+  if (passwordDialogResolver) {
+    const resolver = passwordDialogResolver;
+    passwordDialogResolver = null;
+    resolver(result);
+  }
+}
+
 function fillEntryForm(entry, options = {}) {
-  entryFields.id.value = options.keepId === false ? "" : entry.id;
-  entryFields.label.value = entry.label;
-  entryFields.account.value = entry.account;
-  entryFields.issuer.value = entry.issuer;
-  entryFields.secret.value = entry.secret;
-  entryFields.algorithm.value = entry.algorithm;
-  entryFields.digits.value = String(entry.digits);
-  entryFields.period.value = String(entry.period);
-  entryFields.website.value = entry.website;
-  entryFields.notes.value = entry.notes;
-  editorTitle.textContent = options.mode === "import" ? "导入后编辑" : "编辑条目";
-  setResetButtonVisible(false);
-  setQuickImportVisible(options.mode === "import");
-  setSecretFieldsLocked(true);
-  setQuickImportLocked(options.mode !== "import");
-  if (options.mode !== "import") {
+  const mode = options.mode || "edit";
+  entryFields.id.value = options.keepId === false ? "" : entry.id || "";
+  entryFields.label.value = entry.label || "";
+  entryFields.account.value = entry.account || "";
+  entryFields.issuer.value = entry.issuer || "";
+  entryFields.algorithm.value = entry.algorithm || "SHA1";
+  entryFields.digits.value = String(entry.digits || 6);
+  entryFields.period.value = String(entry.period || 30);
+  entryFields.website.value = entry.website || "";
+  entryFields.notes.value = entry.notes || "";
+  editorTitle.textContent = mode === "import" ? "导入后编辑" : "编辑条目";
+  setResetButtonVisible(mode === "import");
+  setQuickImportVisible(mode === "import");
+  setQuickImportLocked(mode !== "import");
+  setSecretFieldMode(mode, entry.secret || "");
+  if (mode !== "import") {
     quickImportInput.value = "";
   }
   openEntryPanel();
@@ -304,53 +367,61 @@ function fillEntryForm(entry, options = {}) {
 async function copyText(text) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
-    return;
+  } else {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "absolute";
+    textarea.style.left = "-9999px";
+    document.body.append(textarea);
+    textarea.select();
+    const success = document.execCommand("copy");
+    textarea.remove();
+    if (!success) {
+      throw new Error("当前环境不支持复制到剪贴板。");
+    }
   }
 
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "absolute";
-  textarea.style.left = "-9999px";
-  document.body.append(textarea);
-  textarea.select();
-  const success = document.execCommand("copy");
-  textarea.remove();
-
-  if (!success) {
-    throw new Error("当前环境不支持复制到剪贴板。");
-  }
+  window.clearTimeout(clipboardClearTimer);
+  clipboardClearTimer = window.setTimeout(async () => {
+    try {
+      if (navigator.clipboard?.readText && (await navigator.clipboard.readText()) === text) {
+        await navigator.clipboard.writeText("");
+      }
+    } catch {
+      // Clipboard access can be revoked while the timer is pending.
+    }
+  }, CLIPBOARD_CLEAR_MS);
 }
 
 function sortEntries() {
-  return [...state.entries].sort((a, b) => {
-    const createdDiff = Number(a.createdAt || 0) - Number(b.createdAt || 0);
-    if (createdDiff !== 0) {
-      return createdDiff;
-    }
-    return a.label.localeCompare(b.label, "zh-CN");
+  return [...state.entries].sort((left, right) => {
+    const createdDiff = Number(left.createdAt || 0) - Number(right.createdAt || 0);
+    return createdDiff || left.label.localeCompare(right.label, "zh-CN");
   });
 }
 
-function updateEntryCard(node, entry, now = Date.now()) {
+function updateEntryCard(node, entry) {
   const codeState = state.codes.get(entry.id);
-  const remaining = secondsRemaining(entry, now);
-  const elapsedProgress = 1 - remaining / entry.period;
+  const remaining = Number(codeState?.remaining || 0);
+  const elapsedProgress = remaining > 0 ? 1 - remaining / entry.period : 1;
   const timerRing = node.querySelector(".entry-timer-ring");
-
   node.querySelector(".entry-code").textContent = codeState?.code ? formatOtp(codeState.code) : "------";
-  node.querySelector(".entry-timer").textContent = codeState?.error ? "错误" : `${remaining}s`;
+  node.querySelector(".entry-timer").textContent = codeState?.error
+    ? "错误"
+    : remaining > 0
+      ? `${remaining}s`
+      : "--";
   timerRing.style.setProperty("--timer-progress", String(elapsedProgress));
   timerRing.classList.toggle("is-error", Boolean(codeState?.error));
 }
 
-function updateEntryDisplays(now = Date.now()) {
+function updateEntryDisplays() {
   for (const entry of sortEntries()) {
     const node = state.entryNodes.get(entry.id);
-    if (!node) {
-      continue;
+    if (node) {
+      updateEntryCard(node, entry);
     }
-    updateEntryCard(node, entry, now);
   }
 }
 
@@ -367,7 +438,7 @@ function renderEntries() {
   if (!visibleEntries.length) {
     const empty = document.createElement("div");
     empty.className = "status-box";
-    empty.textContent = "没有可显示的条目。可点击右下角 + 或从 JSON 备份恢复。";
+    empty.textContent = "没有可显示的条目。可点击右下角 + 或从加密备份恢复。";
     entriesGrid.append(empty);
     requestAnimationFrame(updateListFadeState);
     return;
@@ -376,15 +447,16 @@ function renderEntries() {
   for (const entry of visibleEntries) {
     const node = template.content.firstElementChild.cloneNode(true);
     node.dataset.entryId = entry.id;
-
     node.querySelector(".entry-label").textContent = entry.issuer || entry.label;
     node.querySelector(".entry-account").textContent = entry.account || entry.label;
 
     const notes = node.querySelector(".entry-notes");
-    const extraInfo = [entry.algorithm !== "SHA1" ? entry.algorithm : "", entry.period !== 30 ? `${entry.period}s` : ""]
+    const extraInfo = [
+      entry.algorithm !== "SHA1" ? entry.algorithm : "",
+      entry.period !== 30 ? `${entry.period}s` : "",
+    ]
       .filter(Boolean)
       .join(" · ");
-
     if (extraInfo) {
       notes.textContent = extraInfo;
     } else {
@@ -397,34 +469,29 @@ function renderEntries() {
       link.addEventListener("click", async (event) => {
         event.preventDefault();
         event.stopPropagation();
-
         try {
           await openExternalUrl(entry.website);
         } catch (error) {
-          setStatus(error.message, "error");
+          handleOperationError(error);
         }
       });
     } else {
       link.remove();
     }
 
-    const copyCurrentCode = async () => {
-      const currentCodeState = state.codes.get(entry.id);
-      if (!currentCodeState?.code || currentCodeState.code === "ERROR") {
-        throw new Error("当前验证码不可复制。");
-      }
-      await copyText(currentCodeState.code);
-      setStatus("已复制", "success");
-    };
-
     node.addEventListener("click", async (event) => {
       if (event.target.closest(".entry-link, .entry-menu")) {
         return;
       }
       try {
-        await copyCurrentCode();
+        const currentCode = state.codes.get(entry.id)?.code;
+        if (!currentCode) {
+          throw new Error("当前验证码不可复制。");
+        }
+        await copyText(currentCode);
+        setStatus("已复制，30 秒后自动清空剪贴板。", "success");
       } catch (error) {
-        setStatus(error.message, "error");
+        handleOperationError(error);
       }
     });
 
@@ -448,54 +515,154 @@ function renderEntries() {
       if (!confirmed) {
         return;
       }
-
       try {
-        state.entries = state.entries.filter((item) => item.id !== entry.id);
-        await persistEntries();
+        await removeEntry(entry.id);
+        await reloadEntries();
         await refreshCodes();
         setStatus(`已删除条目：${entry.label}`, "success");
       } catch (error) {
-        setStatus(error.message, "error");
+        handleOperationError(error);
       }
     });
 
     entriesGrid.append(node);
     state.entryNodes.set(entry.id, node);
     updateEntryCard(node, entry);
-
     if (previousMenuState && previousMenuState.id === entry.id) {
       openMenu(menuShell, previousMenuState);
     }
   }
-
   requestAnimationFrame(updateListFadeState);
 }
 
-async function refreshCodes() {
-  const visibleEntries = sortEntries();
-  const results = await Promise.all(
-    visibleEntries.map(async (entry) => {
-      try {
-        const code = await generateTotp(entry);
-        return [entry.id, { code, error: "" }];
-      } catch (error) {
-        return [entry.id, { code: "ERROR", error: error.message }];
-      }
-    }),
-  );
-
-  state.codes = new Map(results);
-  updateEntryDisplays();
+async function reloadEntries() {
+  state.entries = await loadEntries();
+  updateMeta();
+  renderEntries();
 }
 
-async function handleImportBackup(text) {
-  const importedEntries = parseImportText(text);
-  importedEntries.forEach(validateEntry);
-  const mergeResult = mergeImportedEntries(state.entries, importedEntries);
-  state.entries = mergeResult.entries;
-  await persistEntries();
+async function refreshCodes() {
+  if (!state.unlocked || refreshInFlight) {
+    return;
+  }
+  refreshInFlight = true;
+  try {
+    const results = await loadCodes();
+    state.codes = new Map(
+      results.map((result) => [
+        result.id,
+        {
+          code: result.code || "",
+          remaining: Number(result.remaining || 0),
+          error: result.error || "",
+        },
+      ]),
+    );
+    updateEntryDisplays();
+  } finally {
+    refreshInFlight = false;
+  }
+}
+
+function clearUnlockedState() {
+  state.unlocked = false;
+  state.entries = [];
+  state.codes = new Map();
+  state.entryNodes = new Map();
+  updateMeta();
+  entriesGrid.innerHTML = "";
+  closeAllMenus();
+  closeEntryPanel();
+  if (confirmBackdrop.classList.contains("open")) {
+    closeConfirmDialog(false);
+  }
+  if (passwordBackdrop.classList.contains("open")) {
+    closePasswordDialog(null);
+  }
+}
+
+function showVaultGate(status, message = "") {
+  clearUnlockedState();
+  state.autoLockSeconds = Number(status.autoLockSeconds || 300);
+  state.vaultMode = status.initialized ? "unlock" : "setup";
+  const isSetup = state.vaultMode === "setup";
+  vaultTitle.textContent = isSetup ? "创建加密保险库" : "解锁保险库";
+  vaultDescription.textContent = isSetup
+    ? "设置主密码后，条目将使用本机加密密钥保护。主密码无法找回，请妥善保存。"
+    : `输入主密码继续。保险库闲置 ${Math.round(state.autoLockSeconds / 60)} 分钟后会自动锁定。`;
+  vaultMigrationNotice.textContent =
+    isSetup && status.legacyEntryCount > 0
+      ? `检测到 ${status.legacyEntryCount} 个旧版明文条目，创建保险库时会自动加密迁移。`
+      : "";
+  vaultMigrationNotice.classList.toggle(
+    "is-hidden",
+    !(isSetup && status.legacyEntryCount > 0),
+  );
+  vaultConfirmGroup.classList.toggle("is-hidden", !isSetup);
+  vaultPasswordInput.autocomplete = isSetup ? "new-password" : "current-password";
+  vaultPasswordInput.value = "";
+  vaultConfirmInput.value = "";
+  vaultSubmitButton.textContent = isSetup ? "创建并解锁" : "解锁";
+  vaultError.textContent = message;
+  vaultGate.classList.add("open");
+  vaultGate.setAttribute("aria-hidden", "false");
+  document.body.classList.add("vault-locked");
+  requestAnimationFrame(() => vaultPasswordInput.focus());
+}
+
+async function activateVault(status) {
+  state.unlocked = true;
+  state.autoLockSeconds = Number(status.autoLockSeconds || 300);
+  state.codes = new Map();
+  lastVaultTouch = Date.now();
+  vaultGate.classList.remove("open");
+  vaultGate.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("vault-locked");
+  vaultPasswordInput.value = "";
+  vaultConfirmInput.value = "";
+  vaultError.textContent = "";
+  await reloadEntries();
   await refreshCodes();
-  setStatus(`已恢复 ${importedEntries.length} 个条目，新增 ${mergeResult.added} 个，替换 ${mergeResult.replaced} 个。`, "success");
+}
+
+async function handleLockedSession(message = "保险库已自动锁定，请重新输入主密码。") {
+  let status;
+  try {
+    status = await getVaultStatus();
+  } catch {
+    status = {
+      initialized: true,
+      legacyEntryCount: 0,
+      autoLockSeconds: state.autoLockSeconds,
+    };
+  }
+  showVaultGate(status, message);
+}
+
+function handleOperationError(error) {
+  if (isVaultLockedError(error)) {
+    void handleLockedSession();
+    return;
+  }
+  setStatus(getErrorMessage(error), "error");
+}
+
+function validateEntryMetadata() {
+  if (!entryFields.label.value.trim()) {
+    throw new Error("条目名称不能为空。");
+  }
+  if (entryFields.website.value.trim() && !isSafeHttpUrl(entryFields.website.value)) {
+    throw new Error("网址只支持 http 或 https。");
+  }
+  if (!["SHA1", "SHA256", "SHA512"].includes(entryFields.algorithm.value)) {
+    throw new Error("算法只支持 SHA1 / SHA256 / SHA512。");
+  }
+  if (![6, 8].includes(Number(entryFields.digits.value))) {
+    throw new Error("位数只支持 6 或 8。");
+  }
+  if (![15, 30, 45, 60].includes(Number(entryFields.period.value))) {
+    throw new Error("周期只支持 15 / 30 / 45 / 60 秒。");
+  }
 }
 
 function handleQuickImportToForm() {
@@ -506,82 +673,109 @@ function handleQuickImportToForm() {
 
 entryForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-
+  const editing = Boolean(entryFields.id.value);
   try {
-    const entry = sanitizeEntry({
-      id: entryFields.id.value || undefined,
+    validateEntryMetadata();
+    const input = {
+      id: editing ? entryFields.id.value : null,
       label: entryFields.label.value,
       account: entryFields.account.value,
       issuer: entryFields.issuer.value,
-      secret: entryFields.secret.value,
+      secret: editing ? null : normalizeSecret(entryFields.secret.value),
       algorithm: entryFields.algorithm.value,
       digits: Number(entryFields.digits.value),
       period: Number(entryFields.period.value),
       website: entryFields.website.value,
       notes: entryFields.notes.value,
-      createdAt: entryFields.id.value
-        ? state.entries.find((item) => item.id === entryFields.id.value)?.createdAt
-        : undefined,
-    });
-
-    validateEntry(entry);
-
-    if (!entryFields.id.value) {
-      const hasDuplicateSecret = state.entries.some((item) => item.secret === normalizeSecret(entry.secret));
-      if (hasDuplicateSecret) {
-        throw new Error("该密钥已存在，不能重复新增。");
-      }
+    };
+    if (!editing) {
+      validateEntry(sanitizeEntry(input));
     }
-
-    const existingIndex = state.entries.findIndex((item) => item.id === entry.id);
-    if (existingIndex >= 0) {
-      state.entries.splice(existingIndex, 1, entry);
-    } else {
-      state.entries.push(entry);
-    }
-
-    await persistEntries();
+    const saved = await saveEntry(input);
+    entryFields.secret.value = "";
+    quickImportInput.value = "";
+    await reloadEntries();
     closeEntryPanel();
     await refreshCodes();
-    setStatus(`已保存条目：${entry.label}`, "success");
+    setStatus(`已保存条目：${saved.label}`, "success");
   } catch (error) {
-    setStatus(error.message, "error");
+    handleOperationError(error);
   }
 });
 
-resetFormButton.addEventListener("click", () => resetEntryForm());
+vaultForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const password = vaultPasswordInput.value;
+  vaultError.textContent = "";
+  if (state.vaultMode === "setup" && password !== vaultConfirmInput.value) {
+    vaultError.textContent = "两次输入的主密码不一致。";
+    return;
+  }
 
+  vaultSubmitButton.disabled = true;
+  vaultSubmitButton.textContent = state.vaultMode === "setup" ? "正在加密迁移…" : "正在解锁…";
+  try {
+    const status =
+      state.vaultMode === "setup" ? await initializeVault(password) : await unlockVault(password);
+    await activateVault(status);
+    setStatus(state.vaultMode === "setup" ? "加密保险库已创建。" : "保险库已解锁。", "success");
+  } catch (error) {
+    vaultError.textContent = getErrorMessage(error);
+    vaultPasswordInput.select();
+  } finally {
+    vaultSubmitButton.disabled = false;
+    vaultSubmitButton.textContent = state.vaultMode === "setup" ? "创建并解锁" : "解锁";
+  }
+});
+
+passwordDialogForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const password = passwordDialogInput.value;
+  const options = passwordDialogOptions || {};
+  passwordDialogError.textContent = "";
+  if (!password) {
+    passwordDialogError.textContent = "请输入密码。";
+    return;
+  }
+  if (options.minimumLength && [...password].length < options.minimumLength) {
+    passwordDialogError.textContent = `密码至少需要 ${options.minimumLength} 个字符。`;
+    return;
+  }
+  if (options.requireConfirmation && password !== passwordDialogConfirmInput.value) {
+    passwordDialogError.textContent = "两次输入的密码不一致。";
+    return;
+  }
+  closePasswordDialog(password);
+});
+
+passwordDialogCancel.addEventListener("click", () => closePasswordDialog(null));
+passwordBackdrop.addEventListener("click", (event) => {
+  if (event.target === passwordBackdrop) {
+    closePasswordDialog(null);
+  }
+});
+
+resetFormButton.addEventListener("click", resetEntryForm);
 quickImportButton.addEventListener("click", () => {
   try {
     handleQuickImportToForm();
   } catch (error) {
-    setStatus(`解析失败：${error.message}`, "error");
+    setStatus(`解析失败：${getErrorMessage(error)}`, "error");
   }
 });
-
-fabAddButton.addEventListener("click", () => {
-  openEntryPanel({ reset: true });
-});
-
+fabAddButton.addEventListener("click", () => openEntryPanel({ reset: true }));
 editorBackdrop.addEventListener("click", (event) => {
   if (event.target === editorBackdrop) {
     closeEntryPanel();
   }
 });
-
 confirmBackdrop.addEventListener("click", (event) => {
   if (event.target === confirmBackdrop) {
     closeConfirmDialog(false);
   }
 });
-
-confirmCancelButton.addEventListener("click", () => {
-  closeConfirmDialog(false);
-});
-
-confirmAcceptButton.addEventListener("click", () => {
-  closeConfirmDialog(true);
-});
+confirmCancelButton.addEventListener("click", () => closeConfirmDialog(false));
+confirmAcceptButton.addEventListener("click", () => closeConfirmDialog(true));
 
 topMenuButton.addEventListener("pointerdown", (event) => {
   event.preventDefault();
@@ -589,62 +783,67 @@ topMenuButton.addEventListener("pointerdown", (event) => {
   toggleEntryMenu(topMenu, { kind: "top" });
 });
 
-window.addEventListener("resize", () => {
-  updateListFadeState();
-  if (activeMenuShell) {
-    positionMenuPanel(activeMenuShell);
+lockButton.addEventListener("click", async () => {
+  closeActiveMenu();
+  try {
+    await lockVault();
+    await handleLockedSession("保险库已锁定。");
+  } catch (error) {
+    handleOperationError(error);
   }
 });
 
-listScroll.addEventListener("scroll", updateListFadeState);
-window.addEventListener("wheel", handleMenuWheel, { capture: true, passive: true });
-
-document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape") {
+changePasswordButton.addEventListener("click", async () => {
+  closeActiveMenu();
+  const currentPassword = await openPasswordDialog({
+    title: "验证当前主密码",
+    message: "更改主密码前，需要先验证当前主密码。",
+    confirmLabel: "继续",
+  });
+  if (currentPassword === null) {
     return;
   }
-
-  if (activeMenuShell) {
-    closeActiveMenu();
+  const newPassword = await openPasswordDialog({
+    title: "设置新的主密码",
+    message: "修改后必须使用新密码解锁。已有条目不需要重新导入。",
+    confirmLabel: "更新主密码",
+    requireConfirmation: true,
+    minimumLength: 8,
+  });
+  if (newPassword === null) {
     return;
   }
-
-  if (confirmBackdrop.classList.contains("open")) {
-    closeConfirmDialog(false);
-    return;
-  }
-
-  if (editorBackdrop.classList.contains("open")) {
-    closeEntryPanel();
-  }
-});
-
-document.addEventListener("click", (event) => {
-  if (!activeMenuShell) {
-    return;
-  }
-
-  if (!activeMenuShell.contains(event.target)) {
-    closeActiveMenu();
+  try {
+    const status = await changeMasterPassword(currentPassword, newPassword);
+    state.autoLockSeconds = Number(status.autoLockSeconds || state.autoLockSeconds);
+    setStatus("主密码已更新。", "success");
+  } catch (error) {
+    handleOperationError(error);
   }
 });
 
 exportButton.addEventListener("click", async () => {
   closeActiveMenu();
+  const password = await openPasswordDialog({
+    title: "导出加密备份",
+    message: "设置独立的备份密码。恢复备份时必须使用相同密码。",
+    confirmLabel: "加密并导出",
+    requireConfirmation: true,
+    minimumLength: 8,
+  });
+  if (password === null) {
+    return;
+  }
 
   try {
-    const snapshot = createSnapshot(state.entries);
-    const filename = `totp-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    const snapshotText = JSON.stringify(snapshot, null, 2);
-    const exportResult = await exportBackupWithDialog(filename, snapshotText);
-
-    if (exportResult === "cancelled") {
-      return;
+    const backupText = await createEncryptedBackup(password);
+    const filename = `totp-backup-${new Date().toISOString().slice(0, 10)}.totp`;
+    const exportResult = await exportBackupWithDialog(filename, backupText);
+    if (exportResult !== "cancelled") {
+      setStatus("已导出加密备份。", "success");
     }
-
-    setStatus("已导出当前备份。", "success");
   } catch (error) {
-    setStatus(error.message, "error");
+    handleOperationError(error);
   }
 });
 
@@ -653,31 +852,119 @@ importFileInput.addEventListener("change", async () => {
   if (!file) {
     return;
   }
-
+  closeActiveMenu();
   try {
-    closeActiveMenu();
+    if (file.size > MAX_IMPORT_BYTES) {
+      throw new Error("备份文件不能超过 10 MB。");
+    }
     const text = await file.text();
-    await handleImportBackup(text);
-    importFileInput.value = "";
+    const encrypted = isEncryptedBackupText(text);
+    let password = null;
+    if (encrypted) {
+      password = await openPasswordDialog({
+        title: "恢复加密备份",
+        message: "输入创建此备份时使用的密码。",
+        confirmLabel: "解密并恢复",
+      });
+      if (password === null) {
+        return;
+      }
+    } else {
+      const confirmed = await openConfirmDialog({
+        title: "导入旧版明文备份",
+        message: "此文件不是加密备份。确认导入后，条目会立即加密保存到当前保险库。",
+        confirmLabel: "继续导入",
+      });
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    const result = await restoreBackup(text, password);
+    await reloadEntries();
+    await refreshCodes();
+    setStatus(
+      `已恢复 ${result.added + result.replaced} 个条目，新增 ${result.added} 个，替换 ${result.replaced} 个。`,
+      "success",
+    );
   } catch (error) {
-    setStatus(error.message, "error");
+    handleOperationError(error);
+  } finally {
+    importFileInput.value = "";
   }
 });
 
-resetEntryForm();
-updateMeta();
+window.addEventListener("resize", () => {
+  updateListFadeState();
+  if (activeMenuShell) {
+    positionMenuPanel(activeMenuShell);
+  }
+});
+listScroll.addEventListener("scroll", updateListFadeState);
+window.addEventListener("wheel", handleMenuWheel, { capture: true, passive: true });
 
-try {
-  state.entries = await loadEntries();
-  updateMeta();
-  renderEntries();
-  await refreshCodes();
-} catch (error) {
-  setStatus(`加载 SQLite 数据失败：${error.message}`, "error");
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") {
+    return;
+  }
+  if (passwordBackdrop.classList.contains("open")) {
+    closePasswordDialog(null);
+  } else if (activeMenuShell) {
+    closeActiveMenu();
+  } else if (confirmBackdrop.classList.contains("open")) {
+    closeConfirmDialog(false);
+  } else if (editorBackdrop.classList.contains("open")) {
+    closeEntryPanel();
+  }
+});
+
+document.addEventListener("click", (event) => {
+  if (activeMenuShell && !activeMenuShell.contains(event.target)) {
+    closeActiveMenu();
+  }
+});
+
+async function registerVaultActivity() {
+  if (!state.unlocked || Date.now() - lastVaultTouch < 10_000) {
+    return;
+  }
+  lastVaultTouch = Date.now();
+  try {
+    if (!(await touchVault())) {
+      await handleLockedSession();
+    }
+  } catch (error) {
+    handleOperationError(error);
+  }
 }
 
-setInterval(() => {
-  refreshCodes().catch((error) => {
-    setStatus(error.message, "error");
-  });
+document.addEventListener("pointerdown", () => void registerVaultActivity(), { passive: true });
+document.addEventListener("keydown", () => void registerVaultActivity());
+
+async function bootstrap() {
+  resetEntryForm();
+  updateMeta();
+  try {
+    const status = await getVaultStatus();
+    if (status.unlocked) {
+      await activateVault(status);
+    } else {
+      showVaultGate(status);
+    }
+  } catch (error) {
+    showVaultGate(
+      { initialized: true, legacyEntryCount: 0, autoLockSeconds: 300 },
+      `无法打开保险库：${getErrorMessage(error)}`,
+    );
+    vaultSubmitButton.disabled = true;
+  }
+}
+
+window.setInterval(() => {
+  if (!state.unlocked) {
+    return;
+  }
+  refreshCodes().catch((error) => handleOperationError(error));
 }, 1000);
+
+void bootstrap();

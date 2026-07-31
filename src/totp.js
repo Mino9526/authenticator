@@ -1,11 +1,6 @@
 const DEFAULT_PERIOD = 30;
 const DEFAULT_DIGITS = 6;
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-const HASH_ALGORITHM_MAP = {
-  SHA1: "SHA-1",
-  SHA256: "SHA-256",
-  SHA512: "SHA-512",
-};
 
 export function normalizeSecret(secret) {
   const normalized = String(secret || "")
@@ -26,7 +21,6 @@ export function normalizeSecret(secret) {
 
 export function base32ToBytes(secret) {
   const normalized = normalizeSecret(secret);
-
   if (!normalized) {
     throw new Error("密钥不能为空。");
   }
@@ -44,70 +38,16 @@ export function base32ToBytes(secret) {
   for (let index = 0; index < bytes.length; index += 1) {
     bytes[index] = Number.parseInt(bits.slice(index * 8, index * 8 + 8), 2);
   }
-
+  if (!bytes.length) {
+    throw new Error("Base32 密钥长度不足。");
+  }
   return bytes;
 }
 
-function counterToBytes(counter) {
-  const buffer = new ArrayBuffer(8);
-  const view = new DataView(buffer);
-  const high = Math.floor(counter / 2 ** 32);
-  const low = counter >>> 0;
-  view.setUint32(0, high);
-  view.setUint32(4, low);
-  return new Uint8Array(buffer);
-}
-
-async function signHmac(secretBytes, counterBytes, algorithm) {
-  const subtle = globalThis.crypto?.subtle;
-  if (!subtle) {
-    throw new Error("当前环境不支持 Web Crypto。");
-  }
-
-  const hashName = HASH_ALGORITHM_MAP[String(algorithm).toUpperCase()];
-  if (!hashName) {
-    throw new Error(`不支持的算法：${algorithm}`);
-  }
-
-  const key = await subtle.importKey(
-    "raw",
-    secretBytes,
-    { name: "HMAC", hash: { name: hashName } },
-    false,
-    ["sign"],
-  );
-
-  const signature = await subtle.sign("HMAC", key, counterBytes);
-  return new Uint8Array(signature);
-}
-
-export async function generateTotp(entry, at = Date.now()) {
-  const period = Number(entry.period || DEFAULT_PERIOD);
-  const digits = Number(entry.digits || DEFAULT_DIGITS);
-  const algorithm = String(entry.algorithm || "SHA1").toUpperCase();
-  const counter = Math.floor(Math.floor(at / 1000) / period);
-  const secretBytes = base32ToBytes(entry.secret);
-  const hmac = await signHmac(secretBytes, counterToBytes(counter), algorithm);
-  const offset = hmac[hmac.length - 1] & 0x0f;
-  const binary =
-    ((hmac[offset] & 0x7f) << 24) |
-    ((hmac[offset + 1] & 0xff) << 16) |
-    ((hmac[offset + 2] & 0xff) << 8) |
-    (hmac[offset + 3] & 0xff);
-  const otp = String(binary % 10 ** digits).padStart(digits, "0");
-
-  return otp;
-}
-
 export function formatOtp(code) {
-  const chunkSize = code.length === 8 ? 4 : 3;
-  return code.match(new RegExp(`.{1,${chunkSize}}`, "g"))?.join(" ") || code;
-}
-
-export function secondsRemaining(entry, at = Date.now()) {
-  const period = Number(entry.period || DEFAULT_PERIOD);
-  const currentSecond = Math.floor(at / 1000);
-  return period - (currentSecond % period);
+  const normalized = String(code || "");
+  const chunkSize = normalized.length === 8 ? 4 : 3;
+  return normalized.match(new RegExp(`.{1,${chunkSize}}`, "g"))?.join(" ") || normalized;
 }
 
 function parseLabel(labelText) {
@@ -160,11 +100,9 @@ export function parseOtpauthUri(uri) {
 
 export function parseEntryKey(input) {
   const trimmed = String(input || "").trim();
-
   if (!trimmed) {
     throw new Error("请先输入要解析的 Key。");
   }
-
   if (trimmed.startsWith("otpauth://")) {
     return parseOtpauthUri(trimmed);
   }
@@ -183,38 +121,11 @@ export function parseEntryKey(input) {
   });
 }
 
-function slugify(text) {
-  return String(text || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "entry";
-}
-
-function createRandomIdSuffix() {
-  if (globalThis.crypto?.randomUUID) {
-    return globalThis.crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-  }
-
-  if (globalThis.crypto?.getRandomValues) {
-    const values = new Uint32Array(2);
-    globalThis.crypto.getRandomValues(values);
-    return Array.from(values, (value) => value.toString(36)).join("").slice(0, 12);
-  }
-
-  return `${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`.slice(0, 12);
-}
-
-function createEntryId(seed) {
-  return `${slugify(seed)}-${Date.now()}-${createRandomIdSuffix()}`;
-}
-
 export function isSafeHttpUrl(value) {
   const trimmed = String(value || "").trim();
   if (!trimmed) {
     return false;
   }
-
   try {
     const parsed = new URL(trimmed);
     return parsed.protocol === "http:" || parsed.protocol === "https:";
@@ -224,9 +135,8 @@ export function isSafeHttpUrl(value) {
 }
 
 export function sanitizeEntry(input) {
-  const now = Date.now();
   return {
-    id: input.id || createEntryId(input.issuer || input.label),
+    id: String(input.id || "").trim(),
     label: String(input.label || "").trim(),
     account: String(input.account || "").trim(),
     issuer: String(input.issuer || "").trim(),
@@ -236,64 +146,22 @@ export function sanitizeEntry(input) {
     period: Number(input.period || DEFAULT_PERIOD),
     notes: String(input.notes || "").trim(),
     website: String(input.website || "").trim(),
-    createdAt: Number(input.createdAt || now),
-    updatedAt: Number(input.updatedAt || now),
   };
 }
 
-function normalizeFingerprintText(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-export function getEntryFingerprint(entry) {
-  return normalizeSecret(entry.secret);
-}
-
-export function mergeImportedEntries(existingEntries, importedEntries) {
-  const merged = new Map();
-  const fingerprintIndex = new Map();
-
-  function addIndexedEntry(rawEntry) {
-    const entry = sanitizeEntry(rawEntry);
-    merged.set(entry.id, entry);
-    fingerprintIndex.set(getEntryFingerprint(entry), entry.id);
-    return entry;
-  }
-
-  function removeIndexedEntry(entry) {
-    merged.delete(entry.id);
-    fingerprintIndex.delete(getEntryFingerprint(entry));
-  }
-
-  existingEntries.forEach((entry) => addIndexedEntry(entry));
-
-  let added = 0;
-  let replaced = 0;
-
-  for (const rawImportedEntry of importedEntries) {
-    const importedEntry = sanitizeEntry(rawImportedEntry);
-    const targetId = fingerprintIndex.get(getEntryFingerprint(importedEntry));
-
-    if (!targetId) {
-      addIndexedEntry(importedEntry);
-      added += 1;
-      continue;
-    }
-
-    const currentEntry = merged.get(targetId);
-    removeIndexedEntry(currentEntry);
-    addIndexedEntry({
-      ...importedEntry,
-      id: currentEntry.id,
-      createdAt: currentEntry.createdAt,
-    });
-    replaced += 1;
-  }
-
+export function sanitizePublicEntry(input) {
   return {
-    entries: [...merged.values()],
-    added,
-    replaced,
+    id: String(input.id || "").trim(),
+    label: String(input.label || "").trim(),
+    account: String(input.account || "").trim(),
+    issuer: String(input.issuer || "").trim(),
+    algorithm: String(input.algorithm || "SHA1").toUpperCase(),
+    digits: Number(input.digits || DEFAULT_DIGITS),
+    period: Number(input.period || DEFAULT_PERIOD),
+    notes: String(input.notes || "").trim(),
+    website: String(input.website || "").trim(),
+    createdAt: Number(input.createdAt || 0),
+    updatedAt: Number(input.updatedAt || 0),
   };
 }
 
@@ -308,7 +176,7 @@ export function validateEntry(entry) {
     throw new Error("位数只支持 6 或 8。");
   }
   if (![15, 30, 45, 60].includes(Number(entry.period))) {
-    throw new Error("周期建议为 15 / 30 / 45 / 60 秒。");
+    throw new Error("周期只支持 15 / 30 / 45 / 60 秒。");
   }
   if (!["SHA1", "SHA256", "SHA512"].includes(String(entry.algorithm).toUpperCase())) {
     throw new Error("算法只支持 SHA1 / SHA256 / SHA512。");
@@ -319,31 +187,15 @@ export function validateEntry(entry) {
   base32ToBytes(entry.secret);
 }
 
-export function createSnapshot(entries) {
-  return {
-    version: 1,
-    updatedAt: Date.now(),
-    entries: entries.map((entry) => sanitizeEntry(entry)),
-  };
-}
-
-export function parseImportText(text) {
+export function isEncryptedBackupText(text) {
   const trimmed = String(text || "").trim();
-  if (!trimmed) {
-    throw new Error("导入内容为空。");
+  if (!trimmed.startsWith("{")) {
+    return false;
   }
-
-  if (trimmed.startsWith("{")) {
+  try {
     const parsed = JSON.parse(trimmed);
-    if (!Array.isArray(parsed.entries)) {
-      throw new Error("JSON 备份缺少 entries 数组。");
-    }
-    return parsed.entries.map((entry) => sanitizeEntry(entry));
+    return parsed?.format === "totp-authenticator-backup";
+  } catch {
+    return false;
   }
-
-  return trimmed
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => parseOtpauthUri(line));
 }

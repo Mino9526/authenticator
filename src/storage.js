@@ -1,18 +1,34 @@
-import { sanitizeEntry } from "./totp.js";
-import { loadEntriesFromStore, saveEntriesToStore } from "./tauri.js";
+import { sanitizePublicEntry } from "./totp.js";
+import {
+  deleteVaultEntry,
+  generateVaultCodes,
+  listVaultEntries,
+  upsertVaultEntry,
+} from "./tauri.js";
 
-function readDesktopEntries(entries) {
+function readPublicEntries(entries) {
   if (!Array.isArray(entries)) {
     throw new Error("桌面端返回了无效的数据。");
   }
-
-  return entries.map((entry) => sanitizeEntry(entry));
+  return entries.map((entry) => sanitizePublicEntry(entry));
 }
 
 export async function loadEntries() {
-  return readDesktopEntries(await loadEntriesFromStore());
+  return readPublicEntries(await listVaultEntries());
 }
 
-export async function saveEntries(entries) {
-  return readDesktopEntries(await saveEntriesToStore(entries));
+export async function saveEntry(entry) {
+  return sanitizePublicEntry(await upsertVaultEntry(entry));
+}
+
+export async function removeEntry(id) {
+  await deleteVaultEntry(id);
+}
+
+export async function loadCodes() {
+  const codes = await generateVaultCodes();
+  if (!Array.isArray(codes)) {
+    throw new Error("桌面端返回了无效的验证码数据。");
+  }
+  return codes;
 }

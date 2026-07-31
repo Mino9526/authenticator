@@ -1,9 +1,9 @@
 {
   "name": "totp-authenticator",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
-  "description": "Desktop TOTP authenticator with Tauri 2 and SQLite persistence.",
+  "description": "Local-first desktop TOTP authenticator with a Rust-backed encrypted vault.",
   "author": "Mino9526",
   "license": "MIT",
   "scripts": {
@@ -20,9 +20,9 @@
     "vite": "^8.0.3"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-fs": "^2.4.5",
-    "@tauri-apps/plugin-opener": "^2.5.3",
-    "@tauri-apps/plugin-sql": "^2.3.2"
+    "@tauri-apps/plugin-opener": "^2.5.3"
   }
 }

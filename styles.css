@@ -51,6 +51,10 @@ body.overlay-open {
   overflow: hidden;
 }
 
+.is-hidden {
+  display: none !important;
+}
+
 button,
 input,
 select,
@@ -76,6 +80,112 @@ button {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   padding: 0;
+}
+
+.vault-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background:
+    radial-gradient(circle at 50% 16%, rgba(26, 115, 232, 0.12), transparent 34%),
+    var(--bg);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+.vault-gate.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.vault-card {
+  width: min(390px, 100%);
+  padding: 28px;
+  border: 1px solid rgba(204, 214, 226, 0.92);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 26px 70px rgba(15, 23, 42, 0.14);
+}
+
+.vault-mark {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 18px;
+  border-radius: 16px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.vault-mark svg {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.vault-card h1 {
+  margin: 6px 0 0;
+  font-size: 1.55rem;
+  font-weight: 600;
+}
+
+.vault-description,
+.vault-footnote,
+.vault-notice {
+  color: var(--muted);
+}
+
+.vault-description {
+  margin: 10px 0 0;
+  font-size: 0.94rem;
+  line-height: 1.55;
+}
+
+.vault-notice {
+  margin: 14px 0 0;
+  padding: 11px 12px;
+  border: 1px solid #cbdcf6;
+  border-radius: 14px;
+  background: #f1f6ff;
+  color: var(--accent-strong);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.vault-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.vault-submit {
+  width: 100%;
+  margin-top: 2px;
+}
+
+.vault-footnote {
+  margin: 16px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.form-error {
+  min-height: 1.25em;
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.84rem;
+  line-height: 1.4;
 }
 
 .topbar {
@@ -598,6 +708,12 @@ label textarea[readonly] {
   color: var(--accent-strong);
 }
 
+.menu-separator {
+  height: 1px;
+  margin: 6px 8px;
+  background: var(--line);
+}
+
 .status-box {
   min-height: 48px;
   margin: 14px;
@@ -610,7 +726,8 @@ label textarea[readonly] {
 }
 
 .editor-backdrop,
-.confirm-backdrop {
+.confirm-backdrop,
+.password-backdrop {
   position: fixed;
   inset: 0;
   display: grid;
@@ -631,20 +748,28 @@ label textarea[readonly] {
   place-items: center;
 }
 
+.password-backdrop {
+  z-index: 1250;
+  place-items: center;
+}
+
 .editor-backdrop.open,
 .editor-backdrop.closing,
-.confirm-backdrop.open {
+.confirm-backdrop.open,
+.password-backdrop.open {
   visibility: visible;
 }
 
 .editor-backdrop.open,
-.confirm-backdrop.open {
+.confirm-backdrop.open,
+.password-backdrop.open {
   opacity: 1;
   pointer-events: auto;
 }
 
 .editor-sheet,
-.confirm-dialog {
+.confirm-dialog,
+.password-dialog {
   background: var(--panel);
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
 }
@@ -750,14 +875,30 @@ label textarea[readonly] {
   padding: 20px;
 }
 
+.password-dialog {
+  width: min(420px, calc(100% - 24px));
+  border-radius: 22px;
+  padding: 20px;
+}
+
 .confirm-dialog h2,
-.confirm-dialog p {
+.confirm-dialog p,
+.password-dialog h2,
+.password-dialog > p {
   margin: 0;
 }
 
-.confirm-dialog p {
+.confirm-dialog p,
+.password-dialog > p {
   margin-top: 10px;
   color: var(--muted);
+  line-height: 1.5;
+}
+
+.password-dialog form {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
 }
 
 .confirm-actions {

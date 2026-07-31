@@ -5,7 +5,7 @@
 <h1 align="center">TOTP Authenticator</h1>
 
 <p align="center">
-  基于 Tauri 2 与 SQLite 的本地优先桌面 TOTP 认证器。
+  基于 Tauri 2、Rust 与加密 SQLite 存储的本地优先桌面 TOTP 认证器。
 </p>
 
 <p align="center">
@@ -24,9 +24,9 @@
 
 ## 项目简介
 
-TOTP Authenticator 用于在桌面端管理并生成基于时间的一次性密码。应用数据保存在本机 SQLite 数据库中，验证码也在本地计算；发布版不依赖本地 HTTP 服务或远程后端。
+TOTP Authenticator 用于在桌面端管理并生成基于时间的一次性密码。条目在写入本机 SQLite 前会由 Rust 后端加密，验证码也只在 Rust 后端计算；发布版不依赖本地 HTTP 服务或远程后端。
 
-项目使用原生 HTML、CSS 和 JavaScript 构建界面，以 Tauri 2 提供桌面运行时、文件对话框、安全外链与 SQLite 持久化能力。
+项目使用原生 HTML、CSS 和 JavaScript 构建界面，以 Tauri 2 提供桌面运行时。已经保存的 TOTP Secret 不会返回 WebView，前端只接收条目展示信息、当前验证码与剩余时间。
 
 ## 功能亮点
 
@@ -37,8 +37,12 @@ TOTP Authenticator 用于在桌面端管理并生成基于时间的一次性密�
 - 支持 SHA-1、SHA-256、SHA-512 算法
 - 支持 6 位或 8 位验证码，以及 15、30、45、60 秒周期
 - 支持为条目添加备注和 HTTP(S) 网站链接
-- 使用 SQLite 在本机持久化数据
-- 支持 JSON 备份导出、恢复与合并
+- 使用 Argon2id 与 XChaCha20-Poly1305 保护本机保险库
+- 支持主密码修改、手动锁定与 5 分钟闲置自动锁定
+- 使用 SQLite 在本机持久化加密后的完整条目
+- 支持独立密码保护的加密备份、恢复与按密钥合并
+- 支持导入旧版明文 JSON 备份与 `otpauth://` 文本
+- 复制验证码 30 秒后自动清空未被覆盖的剪贴板内容
 - 核心功能可完全离线使用
 
 ## 下载
@@ -57,10 +61,14 @@ TOTP Authenticator 用于在桌面端管理并生成基于时间的一次性密�
 ## 基本使用
 
 1. 从 Releases 下载适合当前平台的版本并安装或解压。
-2. 点击右下角的 `+` 新增条目。
-3. 粘贴 `otpauth://totp/...` URI 或 Base32 密钥，也可以手动补充名称、账号和备注。
-4. 点击条目复制验证码；点击网站图标打开关联网址；点击右侧菜单编辑或删除条目。
-5. 使用顶部的导入、导出功能备份或恢复数据。
+2. 首次启动时设置至少 8 个字符的主密码；从旧版本升级时，已有明文条目会在此时自动加密迁移。
+3. 点击右下角的 `+` 新增条目。
+4. 粘贴 `otpauth://totp/...` URI 或 Base32 密钥，也可以手动补充名称、账号和备注。
+5. 点击条目复制验证码；点击网站图标打开关联网址；点击右侧菜单编辑或删除条目。
+6. 使用顶部菜单导入或导出加密备份，也可以修改主密码或立即锁定保险库。
+
+> [!IMPORTANT]
+> 主密码和备份密码均无法找回。遗忘主密码会导致本机保险库无法解锁；遗忘备份密码会导致对应备份无法恢复。
 
 ## 本地开发
 
@@ -89,7 +97,8 @@ npm start
 | `npm run dev` | 仅启动 Vite 前端开发服务器 |
 | `npm run build` | 构建前端生产资源 |
 | `npm run tauri -- build` | 为当前操作系统构建原生应用 |
-| `npm test` | 运行 TOTP 与数据校验测试 |
+| `npm test` | 运行前端解析、校验与安全边界测试 |
+| `cargo test --manifest-path src-tauri/Cargo.toml` | 运行加密、TOTP、迁移与备份测试 |
 
 ## 本地原生构建
 
@@ -135,46 +144,57 @@ git push origin master vX.Y.Z
 
 ## 数据与备份
 
-数据库文件名为 `authenticator.sqlite`，保存在 Tauri 为应用分配的本机配置目录中，具体路径随操作系统而异。
+数据库文件名为 `authenticator.sqlite`，保存在 Tauri 为应用分配的本机配置目录中，具体路径随操作系统而异。数据库中的完整条目被序列化后使用随机数据密钥加密；数据库只保留密文、随机 nonce、带密钥的去重指纹和必要的时间字段。
 
-导出的 JSON 备份包含完整条目数据。导入时会根据条目指纹进行合并：新条目会加入数据库，匹配的现有条目会被备份内容更新。
+- 每个保险库使用独立的随机 256 位数据密钥。
+- 主密码通过 Argon2id 派生密钥，并只用于包装数据密钥；应用不会保存主密码。
+- 条目和备份使用 XChaCha20-Poly1305 加密并校验完整性。
+- 修改主密码只重新包装数据密钥，不会将所有条目解密后重新写入。
+- 导出的 `.totp` 文件使用独立备份密码，不依赖创建备份的设备。
+- 恢复时根据 Secret 的带密钥指纹合并；匹配条目会更新，新条目会加入当前保险库。
+- 旧版明文 JSON 和逐行 `otpauth://` 文本仅支持导入，不再支持明文导出。
 
 <details>
-<summary>查看备份格式示例</summary>
+<summary>查看加密备份容器示例</summary>
 
 ```json
 {
+  "format": "totp-authenticator-backup",
   "version": 1,
-  "updatedAt": 1711948800000,
-  "entries": [
-    {
-      "id": "github-1711948800000",
-      "label": "GitHub",
-      "account": "work@example.com",
-      "issuer": "GitHub",
-      "secret": "YOUR_BASE32_SECRET",
-      "algorithm": "SHA1",
-      "digits": 6,
-      "period": 30,
-      "notes": "恢复码已保存在安全位置",
-      "website": "https://github.com/settings/security",
-      "createdAt": 1711948800000,
-      "updatedAt": 1711948800000
-    }
-  ]
+  "createdAt": 1711948800000,
+  "appVersion": "...",
+  "kdf": {
+    "name": "argon2id",
+    "memoryKib": 65536,
+    "iterations": 3,
+    "parallelism": 1,
+    "salt": "..."
+  },
+  "cipher": {
+    "name": "xchacha20poly1305",
+    "nonce": "..."
+  },
+  "ciphertext": "..."
 }
 ```
 
 </details>
 
+### 从旧版本升级
+
+检测到旧版 `entries` 明文表时，应用会在创建保险库的同一个数据库事务中完成读取、加密、回读校验和旧表移除。任一步骤失败都会回滚，不会留下部分迁移状态；成功后还会清理 SQLite 的旧页面与 WAL。
+
+迁移后的数据库不兼容未提供保险库支持的旧版应用，请勿在同一数据目录上降级运行。升级前仍建议保留一份安全存放的旧版备份，确认新版本能够解锁后再删除。
+
 ## 安全说明
 
-> [!WARNING]
-> 当前版本不会额外加密 SQLite 中的 TOTP 密钥，JSON 备份也包含明文密钥。请勿公开数据库、备份文件、日志或包含真实密钥的截图。
-
 - 应用不会将条目或验证码上传到远程服务。
+- TOTP Secret 的持久化、解密和验证码计算均位于 Rust 后端。
+- 解锁密钥只保留在进程内存中，锁定时会进行零化处理。
+- 保险库默认闲置 5 分钟后锁定，也可以通过顶部菜单立即锁定。
 - 条目网站仅允许使用 `http://` 或 `https://` 协议。
-- 建议使用操作系统磁盘加密，并将备份保存在受保护的位置。
+- 加密主要保护设备丢失、数据库或备份文件泄露等静态数据风险；无法抵御保险库解锁期间已经控制当前用户会话的恶意软件。
+- 仍建议启用 BitLocker 或 FileVault，并避免公开数据库、备份文件、日志或包含真实验证码的截图。
 - 在正式生产环境分发前，建议配置 Windows 与 Apple 代码签名。
 
 ## 项目结构
@@ -182,8 +202,8 @@ git push origin master vX.Y.Z
 ```text
 .
 ├── .github/workflows/   GitHub Actions 构建与发布
-├── src/                 前端交互、存储接入与 TOTP 逻辑
-├── src-tauri/           Tauri 入口、权限、SQLite 与原生资源
+├── src/                 前端交互、保险库调用与输入校验
+├── src-tauri/           Rust 保险库、TOTP、加密备份、SQLite 与原生资源
 ├── index.html           应用页面结构
 ├── styles.css           界面样式
 ├── vite.config.js       Vite 开发与构建配置

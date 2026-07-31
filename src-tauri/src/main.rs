@@ -1,39 +1,33 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri_plugin_sql::{Migration, MigrationKind};
+mod vault;
+
+use tauri::Manager;
 
 fn main() {
-  let migrations = vec![Migration {
-    version: 1,
-    description: "create_entries_table",
-    sql: "
-      CREATE TABLE IF NOT EXISTS entries (
-        id TEXT PRIMARY KEY,
-        label TEXT NOT NULL,
-        account TEXT NOT NULL,
-        issuer TEXT NOT NULL,
-        secret TEXT NOT NULL,
-        algorithm TEXT NOT NULL,
-        digits INTEGER NOT NULL,
-        period INTEGER NOT NULL,
-        notes TEXT NOT NULL DEFAULT '',
-        website TEXT NOT NULL DEFAULT '',
-        createdAt INTEGER NOT NULL,
-        updatedAt INTEGER NOT NULL
-      );
-    ",
-    kind: MigrationKind::Up,
-  }];
-
-  tauri::Builder::default()
-    .plugin(tauri_plugin_dialog::init())
-    .plugin(tauri_plugin_fs::init())
-    .plugin(tauri_plugin_opener::init())
-    .plugin(
-      tauri_plugin_sql::Builder::default()
-        .add_migrations("sqlite:authenticator.sqlite", migrations)
-        .build(),
-    )
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let service = tauri::async_runtime::block_on(vault::VaultService::open(app.handle()))?;
+            app.manage(service);
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            vault::vault_status,
+            vault::initialize_vault,
+            vault::unlock_vault,
+            vault::change_master_password,
+            vault::lock_vault,
+            vault::touch_vault,
+            vault::list_entries,
+            vault::upsert_entry,
+            vault::delete_entry,
+            vault::generate_codes,
+            vault::export_encrypted_backup,
+            vault::import_backup,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
 }
