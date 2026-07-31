@@ -1,6 +1,6 @@
 {
   "name": "totp-authenticator",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Desktop TOTP authenticator with Tauri 2 and SQLite persistence.",

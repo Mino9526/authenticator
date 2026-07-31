@@ -1,6 +1,6 @@
 [package]
 name = "totp-authenticator"
-version = "1.0.0"
+version = "1.0.1"
 description = "Desktop TOTP authenticator with Tauri 2 and SQLite persistence."
 authors = ["Mino9526"]
 edition = "2021"
