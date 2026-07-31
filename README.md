@@ -26,7 +26,7 @@
 
 TOTP Authenticator 用于在桌面端管理并生成基于时间的一次性密码。条目在写入本机 SQLite 前会由 Rust 后端加密，验证码也只在 Rust 后端计算；发布版不依赖本地 HTTP 服务或远程后端。
 
-项目使用原生 HTML、CSS 和 JavaScript 构建界面，以 Tauri 2 提供桌面运行时。已经保存的 TOTP Secret 不会返回 WebView，前端只接收条目展示信息、当前验证码与剩余时间。
+项目采用原生 HTML、CSS 和 JavaScript 构建轻量界面，并通过 Tauri 2 集成 Rust 核心，可在 Windows 和 macOS 上运行。
 
 ## 功能亮点
 
@@ -190,6 +190,7 @@ git push origin master vX.Y.Z
 
 - 应用不会将条目或验证码上传到远程服务。
 - TOTP Secret 的持久化、解密和验证码计算均位于 Rust 后端。
+- 已保存的 TOTP Secret 不会返回 WebView；前端只接收条目展示信息、当前验证码与剩余时间。
 - 解锁密钥只保留在进程内存中，锁定时会进行零化处理。
 - 保险库默认闲置 5 分钟后锁定，也可以通过顶部菜单立即锁定。
 - 条目网站仅允许使用 `http://` 或 `https://` 协议。
